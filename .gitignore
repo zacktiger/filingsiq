@@ -1,0 +1,32 @@
+# --- Secrets ---
+.env
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# --- Node / Vite ---
+node_modules/
+frontend/dist/
+
+# --- Source PDFs -------------------------------------------------------------
+# Filings are large and redistributable only from their original sources, so the
+# raw corpus stays out of git. The directory layout and manifest.csv ARE tracked
+# (see data/README.md) so the pipeline is reproducible from a fresh clone.
+data/raw/**/*.pdf
+
+# Exception: the synthetic DemoCo filing IS committed. It is generated test
+# data (see scripts/make_test_pdf.py) and lets the pipeline be verified on a
+# fresh clone with no real filings downloaded.
+!data/raw/democo/**
+
+# --- Local model + vector store state ---
+# Hugging Face caches embedding weights here; Qdrant persists its own volume.
+.cache/
+qdrant_storage/
+
+# Local index build state, written by ingest.py (machine-specific)
+data/index_meta.json

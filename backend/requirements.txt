@@ -1,0 +1,39 @@
+# FilingsIQ backend - Phase 1 (vertical slice)
+#
+# Version floors below were checked against PyPI, not recalled from memory.
+# LangChain's package layout changed substantially in 1.x, so the floors matter:
+# older tutorials import from `langchain_community`, which is being SUNSET and
+# is deliberately absent here.
+#
+# Run `pip freeze > requirements.lock.txt` after a successful install to pin
+# exact versions for deployment.
+
+# --- Web API -----------------------------------------------------------------
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.7.4
+pydantic-settings>=2.5
+python-dotenv>=1.0
+
+# --- LangChain (1.x) ---------------------------------------------------------
+# Only the pieces Phase 1 actually uses. The `langchain` umbrella package and
+# LangGraph arrive in Phase 5 with agentic routing - no need to carry them yet.
+langchain-core>=1.6.0
+langchain-text-splitters>=1.0
+# Groq's free tier hosts the answer model. Verified limits (Sept 2026):
+# 30 req/min, 1,000 req/day, 8K tokens/min, 200K tokens/day.
+langchain-groq>=1.1.3
+
+# --- Retrieval ---------------------------------------------------------------
+# [full] is required: langchain-huggingface does NOT install sentence-transformers
+# in its base install, and without it HuggingFaceEmbeddings fails at import.
+langchain-huggingface[full]>=1.2.2
+langchain-qdrant>=1.1.0
+qdrant-client>=1.15.1
+
+# --- PDF parsing -------------------------------------------------------------
+pymupdf>=1.24          # text extraction, page by page (page numbers = citations)
+pdfplumber>=0.11       # tables; only a documented stub in Phase 1 (see rag/parse.py)
+
+# Frozen dependency set (pip freeze) for reproducible installs.
+# Regenerate with: pip freeze > backend/requirements.lock.txt
