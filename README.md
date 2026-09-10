@@ -135,6 +135,16 @@ applies.)
 `answer.py` installs a client-side `InMemoryRateLimiter` so a batch of eval
 questions queues locally instead of collecting HTTP 429s part way through a run.
 
+**Why raw PyMuPDF, not a LangChain document loader.** Every LangChain PDF loader
+lives in `langchain_community.document_loaders` (being sunset), and the one
+maintained standalone, `langchain-pymupdf4llm`, is AGPL-3.0. So `parse.py` calls
+`pymupdf` directly. Measured against `PyMuPDFLoader` on the same files,
+extraction is **byte-identical** — so this costs nothing in quality, and buys a
+maintained dependency plus explicit control of the 0-based to 1-based page
+conversion that every citation depends on. (`loader.py` has no loader
+equivalent regardless: deriving metadata from the file path and merging
+`manifest.csv` is not something a loader does.)
+
 **`langchain-community` is deliberately absent.** It is being sunset, and most
 tutorials for this stack import loaders and vector stores from it. Everything
 here uses the maintained 1.x packages (`langchain-core`,
@@ -176,6 +186,17 @@ chunk boundaries would not tell us whether retrieval actually works.
 - **Fixed-size chunking** cuts across section boundaries (Phase 3).
 - **No hybrid search**, so exact-token queries (a specific metric name) are
   weaker than semantic ones (Phase 3).
+- **Multi-column pages extract in scrambled reading order.** Measured: PyMuPDF
+  interleaves two columns line by line, and `PyMuPDFLoader` produces exactly the
+  same output — this is a property of PDF text extraction, not a bug in this
+  code. Real filings are heavily multi-column, so this is the largest
+  retrieval-quality risk here and the strongest argument for Phase 3's
+  structure-aware chunking.
+- **`MIN_PAGE_CHARS = 50` can discard a relevant page.** Measured: it drops a
+  cover page that was the correct source for "which fiscal year does this report
+  cover". Blank pages produce no chunks anyway (the splitter drops empty
+  strings), so the threshold's only real effect is on short-but-meaningful
+  pages. Worth revisiting once Phase 2 can measure it.
 - **Answer throughput is capped by the free tier**, not by the code: ~100
   questions/day. Interactive use and eval runs share that budget.
 - **Scanned PDFs with no text layer yield nothing.** `ingest.py` reports
