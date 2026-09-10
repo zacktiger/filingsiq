@@ -44,7 +44,8 @@ These will silently break things if violated.
    that model rejects `temperature` with a 400. Re-check when changing provider.)
 
 2. **Respect the free-tier token budget.** Groq free tier: 30 req/min,
-   1,000 req/day, **200K tokens/day** — the last is binding (~100 questions), and
+   1,000 req/day, **200K tokens/day** — the last is binding (~207 questions,
+   measured at 965 tokens each), and
    interactive use shares it with Phase 2 eval runs. `answer.py` installs an
    `InMemoryRateLimiter` at `REQUESTS_PER_SECOND=0.4`; removing it makes batch
    eval runs die on HTTP 429 partway through.

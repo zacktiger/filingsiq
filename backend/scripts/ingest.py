@@ -18,6 +18,15 @@ from pathlib import Path
 # Make `app.*` importable when running this file directly as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# Windows consoles default to cp1252, which cannot encode characters that appear
+# routinely in filings and model output - the rupee sign, en/em dashes, and
+# non-breaking hyphens. Without this, printing a correct answer raises
+# UnicodeEncodeError. errors="replace" keeps output readable on any console
+# rather than trading one crash for another.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+
 from app.config import get_settings  # noqa: E402
 from app.rag.chunk import chunk_document  # noqa: E402
 from app.rag.loader import absolute_path, discover_documents  # noqa: E402

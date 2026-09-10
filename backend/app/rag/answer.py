@@ -37,8 +37,9 @@ RULES
 
 1. Use only the numbered SOURCES below. Never use outside knowledge about these \
 companies, even if you are confident it is correct.
-2. Cite every factual claim with the source marker it came from, like [S1] or \
-[S2][S3]. A sentence stating a fact without a marker is a mistake.
+2. Cite every factual claim with the source marker it came from, using plain \
+ASCII square brackets exactly like [S1] or [S2][S3]. Do not use any other \
+bracket characters. A sentence stating a fact without a marker is a mistake.
 3. Quote figures exactly as they appear, including units and currency \
 (for example "Rs. 12,345 crore"). Do not convert, round, or rescale them.
 4. Do NOT perform arithmetic across sources - no growth rates, ratios, CAGRs, \
@@ -120,6 +121,19 @@ def format_sources(chunks: list[Document]) -> str:
     return "\n\n".join(blocks)
 
 
+# Models do not reliably emit the ASCII brackets the prompt asks for. Observed
+# from gpt-oss-120b in this project: fullwidth CJK brackets (U+3010 / U+3011),
+# i.e. the answer said 【S1】 and a strict r"\[S(\d+)\]" silently matched nothing,
+# so a citation the model HAD supplied was dropped. Parentheses, lowercase "s",
+# internal spacing, and several sources in one bracket ("[S1, S2]") also occur.
+#
+# So the prompt asks for one form and the parser tolerates the variants. It
+# still only accepts numbers that map to a retrieved chunk, so this loosens the
+# syntax accepted, never the verification.
+_MARKER_GROUP = re.compile(r"[\[(【]([^\[\]()【】]{0,40})[\])】]")
+_SOURCE_NUM = re.compile(r"S\s*(\d+)", re.IGNORECASE)
+
+
 def cited_indexes(answer: str, source_count: int) -> list[int]:
     """Find which [Sn] markers the answer actually used.
 
@@ -127,7 +141,10 @@ def cited_indexes(answer: str, source_count: int) -> list[int]:
     step: a hallucinated [S9] against 5 retrieved sources is dropped rather
     than shown to the user as though it were real provenance.
     """
-    found = {int(n) for n in re.findall(r"\[S(\d+)\]", answer)}
+    found: set[int] = set()
+    for group in _MARKER_GROUP.findall(answer):
+        for number in _SOURCE_NUM.findall(group):
+            found.add(int(number))
     return sorted(n for n in found if 1 <= n <= source_count)
 
 

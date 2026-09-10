@@ -131,7 +131,9 @@ targeted `claude-opus-5`, where the opposite rule applied — that model *reject
 applies.)
 
 **The free tier's real limit is tokens per day, not requests.** 200,000 tokens/day
-≈ 100 questions, and the Phase 2 eval draws on the same budget as interactive use.
+≈ **207 questions** (measured: 965 tokens per question — 810 in, 155 out, at
+top_k=5), so Phase 2's 80–100 question eval fits about twice a day and shares
+that budget with interactive use.
 `answer.py` installs a client-side `InMemoryRateLimiter` so a batch of eval
 questions queues locally instead of collecting HTTP 429s part way through a run.
 

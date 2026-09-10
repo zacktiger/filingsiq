@@ -144,9 +144,11 @@ since been cut to roughly 20 requests/day, which **cannot run an 80–100 questi
 eval**. Since that eval is Phase 2's entire deliverable, the most attractive
 option on paper was disqualified by the one number that mattered.
 
-**The binding constraint is tokens/day, not requests/day.** At ~2K tokens per
-question, 200K/day is about 100 questions — roughly *one full eval run per day*,
-shared with interactive use. Two consequences:
+**The binding constraint is tokens/day, not requests/day.** Measured on this
+pipeline: **965 tokens per question** (810 in, 155 out, at `top_k=5`), ~4.7s
+latency. That is ~207 questions/day — about *two* full eval runs, shared with
+interactive use. (My pre-measurement estimate was ~2K tokens and ~100
+questions; the real figure is twice as generous.) Two consequences:
 
 - `answer.py` installs a client-side rate limiter (0.4 req/s against a 0.5
   limit) so a batch eval queues locally instead of collecting HTTP 429s halfway
