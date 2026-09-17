@@ -1,5 +1,5 @@
 source_path,company_name,sector,source_url
-tcs/FY24/annual_report.pdf,Tata Consultancy Services,IT,
-infosys/FY24/annual_report.pdf,Infosys,IT,
-hdfcbank/FY24/annual_report.pdf,HDFC Bank,Banking,
+tcs/FY24/annual_report.pdf,Tata Consultancy Services,IT,https://www.bseindia.com/xml-data/corpfiling/AttachHis/d57e49b6-fd89-4fa8-b591-4f590100db1e.pdf
+infosys/FY24/annual_report.pdf,Infosys,IT,https://www.bseindia.com/xml-data/corpfiling/AttachHis/25cc7fbc-154b-4463-928d-c95f2d8c5c9c.pdf
+hdfcbank/FY24/annual_report.pdf,HDFC Bank,Banking,https://www.hdfc.bank.in/content/dam/hdfcbankpws/in/en/pdf/annual-reports/2023-24/integrated-annual-report-2023-24.pdf
 democo/FY24/annual_report.pdf,DemoCo Limited (synthetic test data),IT,

@@ -11,6 +11,30 @@ names the document and the page, so the claim can be checked by hand.
 > minimal React page. The full plan is in [`project.md`](project.md); what is and
 > is not built yet is listed under [Roadmap](#roadmap).
 
+## Phase 1 corpus and verification
+
+Indexed: the FY24 (2023-24) integrated annual reports of **TCS**, **Infosys**, and
+**HDFC Bank**, plus the synthetic DemoCo filing — 1,285 pages, 5,095 chunks with
+`bge-small-en-v1.5`. Source URLs are recorded in
+[`data/manifest.csv`](data/manifest.csv); the PDFs themselves are not committed.
+
+Spot-checked by hand: each answer below was compared against the text of the
+page it cites.
+
+| Question | Answer | Cited page(s) | Verdict |
+|---|---|---|---|
+| TCS revenue in FY 2023-24? | ₹2,40,893 crore | 56, 76 | correct — the figure is on both pages |
+| HDFC Bank net interest margin in FY24? | 3.53 per cent | 27, 216 | correct figure, but the source says *Core* NIM and the answer leaves out "Core" |
+| TCS management on attrition? | trending down, credited to policies and learning | 75 | faithful, but leaves out the 12.5% figure printed on the same page |
+| Infosys operating margin in fiscal 2024? | refused: "not in the filings" | — | **retrieval miss** — 20.7% is on page 16, which was not in the top 5 |
+| Infosys revenue next year? | refused as a forecast | — | correct refusal |
+
+The Infosys miss is the useful result here. The figure sits in a KPI tile ("Operating
+margin 20.7%") with almost no surrounding prose, so a dense embedding of the
+question does not rank it highly. An exact-token query like this is what Phase 3's
+hybrid (BM25) search is meant to fix, and Phase 2's eval set will put a number on
+how often it happens.
+
 ## Documentation
 
 | Document | What it covers |
@@ -199,6 +223,11 @@ chunk boundaries would not tell us whether retrieval actually works.
   cover". Blank pages produce no chunks anyway (the splitter drops empty
   strings), so the threshold's only real effect is on short-but-meaningful
   pages. Worth revisiting once Phase 2 can measure it.
+- **Cited page numbers are PDF page indices, not printed page numbers.** The
+  TCS and Infosys copies come from BSE, whose exchange filings put a
+  cover letter in front of the report, so page 1 of those PDFs is the letter.
+  Citations stay correct against the linked `source_url`, but they will not
+  match the page numbers printed in the report.
 - **Answer throughput is capped by the free tier**, not by the code: ~100
   questions/day. Interactive use and eval runs share that budget.
 - **Scanned PDFs with no text layer yield nothing.** `ingest.py` reports
