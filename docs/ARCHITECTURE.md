@@ -69,6 +69,9 @@ HTTP, and `main.py` has no knowledge of PDFs.
 | `rag/store.py` | Qdrant index + search | Server-side metadata filtering; dimension guard |
 | `rag/answer.py` | Prompt, model call, citations | Resolves `[Sn]` markers; detects refusal; rate limits |
 | `main.py` | HTTP surface | Loads the model at startup, not per request |
+| `eval/questions.jsonl` | 102 labelled questions | Gold is a *list* of pages — alternative correct sources, any one of which counts |
+| `eval/validate_questions.py` | Guard the labels | Catches gold pages the parser drops, which would score 0 forever |
+| `eval/run_retrieval_eval.py` | Recall@k, MRR, nDCG | Runs without a model call, so it is free to repeat |
 
 ---
 
@@ -158,6 +161,69 @@ loads at startup — which is why startup is slow and requests are fast.
 development the API process was killed by the OS under memory pressure while
 running the *small* model, so a VPS sized for Phase 7 needs real headroom — or
 embeddings need to move to their own service.
+
+---
+
+## The evaluation loop (Phase 2)
+
+A third pipeline, and the reason it is drawn separately is that it splits at the
+point where cost appears. Everything left of the dashed line is free and can run
+on every change; everything right of it spends from a 200K tokens/day budget.
+
+```mermaid
+graph LR
+    Q["questions.jsonl<br/>102 questions<br/>gold = doc + pages"]
+
+    subgraph free["FREE — no model call"]
+        direction TB
+        V["validate_questions.py<br/>gold pages still parseable?"]
+        R["run_retrieval_eval.py<br/>Recall@k · MRR · nDCG"]
+    end
+
+    subgraph paid["METERED — ~965 tokens/question"]
+        direction TB
+        AN["answer eval (not built)<br/>faithfulness · citation accuracy<br/>correct refusal rate"]
+    end
+
+    QD[("Qdrant")]
+    PDFs["data/raw/*.pdf"]
+
+    Q --> V
+    Q --> R
+    Q --> AN
+    V -.->|re-parses| PDFs
+    R -.->|similarity_search| QD
+    AN -.->|POST /chat| QD
+    R --> OUT["data/eval_runs/*.json<br/>one file per run"]
+
+    style free fill:#1e3a2e,color:#fff
+    style paid fill:#5a3fa8,color:#fff
+    style QD fill:#1f5fbf,color:#fff
+```
+
+**Why the split is structural rather than a flag.** Retrieval metrics need only
+the question and its gold pages, so they cost nothing and can run on every
+chunking or embedding change — which is the loop Phase 3 lives in. Answer
+metrics need a generation per question, so a full pass is roughly half a day's
+token budget. Merged into one runner, measuring a chunking change would cost the
+same as measuring answer quality, and Phase 3 would get about two experiments a
+day.
+
+**What `validate_questions.py` guards.** A gold page that `parse.py` discards
+(under `MIN_PAGE_CHARS`) is not in the index, so no retriever can ever return
+it. The question then scores 0 forever and reads as a retrieval failure rather
+than a labelling mistake. The validator re-parses the PDFs and fails loudly on
+exactly that — it is the same "fail loudly on data problems" convention as
+`CorpusLayoutError` and `IndexMismatchError`, applied to the eval's own data.
+
+**Why runs are written to `data/eval_runs/`, not just printed.** The success
+criterion in [project.md](../project.md) is a baseline-versus-final metrics
+table, which requires runs to be comparable months apart. Each file records the
+embedding model, collection, chunk size and overlap alongside the scores,
+because a recall change means nothing if the index underneath it also changed.
+These files are committed — they are the evidence for every number in the
+README. At ~108 KB per run they will need pruning eventually; the per-question
+`retrieved` lists are the bulk and are what makes a regression diagnosable.
 
 ---
 

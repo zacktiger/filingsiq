@@ -95,6 +95,7 @@ backend/app/
     store.py                Qdrant: index, dim guard, filters, search
     answer.py               prompt, Groq call, rate limiter, citations, refusal
 backend/scripts/            ingest.py, ask.py, make_test_pdf.py
+backend/eval/               questions.jsonl (Phase 2 set), validate_questions.py
 frontend/src/App.jsx        single-page UI (plain fetch + useState by design)
 data/raw/{company}/{fy}/{doc_type}.pdf
 data/manifest.csv           company_name, sector, source_url
@@ -111,9 +112,15 @@ data/manifest.csv           company_name, sector, source_url
 - **Metadata keys are a contract.** `company`, `fiscal_year`, `doc_type`,
   `source_path`, `page` flow from `chunk.py` → Qdrant payload → `Citation`.
   Renaming one means updating all three and re-indexing.
-- **Phase 1 has no automated tests, deliberately.** Phase 2 is the eval harness;
-  its 80–100 question set is where that effort belongs. Don't add speculative
-  unit tests on chunk boundaries — do build the eval when Phase 2 starts.
+- **Phase 1 has no automated tests, deliberately.** Phase 2 is the eval harness,
+  and that is where the effort belongs. The question set now lives at
+  `backend/eval/questions.jsonl` (102 questions, gold pages verified against
+  parsed text); `validate_questions.py` guards it and costs no tokens. Don't add
+  speculative unit tests on chunk boundaries — extend the eval instead.
+- **Split the eval by cost.** Recall@k / MRR / nDCG need no model call, so they
+  can run on every retrieval change; answer scoring costs ~965 tokens/question
+  and ~half the daily budget per full run. Keep the two runners separate, or
+  Phase 3 iterates twice a day instead of freely.
 - Don't add dependencies from later phases (LangGraph, Postgres, Redis,
   Tailwind, TanStack Query) until that phase is actually being built.
 

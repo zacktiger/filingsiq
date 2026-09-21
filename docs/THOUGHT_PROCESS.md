@@ -199,26 +199,110 @@ arithmetic** and permits only figures printed verbatim in the retrieved text.
 Phase 5 extracts tables into Postgres and routes numeric questions through SQL,
 so the LLM never computes.
 
-## 12. What I would challenge if I were reviewing this
+## 12. The question set had to come before the runner
 
-- **Dense-only retrieval is the weakest link.** Exact-token queries (a specific
-  metric name) are precisely where embeddings underperform BM25, and financial
-  questions are full of them. Phase 3 addresses it, and I expect the measured
-  gain to be large.
+The obvious order is to build the eval harness and then feed it questions. I did
+the opposite, because the harness is the easy half — the scoring maths is thirty
+lines — and the question set is where an eval is actually won or lost.
+
+The temptation with a RAG eval is to generate questions *from the system*: ask
+it things, keep what it answers well, label those as the test set. That set then
+measures nothing, because it was selected for being answerable. So every
+question here was written by reading the filings: I dumped all 1,272 pages of
+text, hunted for facts worth asking about, and recorded the answer and the page
+before ever running a query.
+
+That produced **102 questions**, and it produces a specific kind of question the
+other method never would — `lookup-52` asks how many contract employees HDFC
+Bank has, which is one sentence on one page of 582, mentioned nowhere else. A
+system-generated set contains no such question by construction.
+
+**The trade-off I accepted:** this is slow, and it is limited by my own reading.
+I covered the FY24 annual reports of three companies well; I could not have done
+this for fifteen companies across three years, which is what the v1 scope in
+[project.md](../project.md) eventually asks for. Scaling the set will need
+either much more time or a labelling assistant — and if it is the latter, the
+selection bias above comes back and has to be designed against.
+
+## 13. The eval splits in two, and the reason is the token budget
+
+The single most consequential decision in Phase 2 is that there are **two
+runners, not one**.
+
+Retrieval metrics — Recall@k, MRR, nDCG — need the question and its gold pages
+and nothing else. No model call. No tokens. Answer metrics — faithfulness,
+citation accuracy, correct refusal — need a generation per question, at ~965
+tokens each, so one full pass over 102 questions is about half of Groq's
+200K/day.
+
+If those live in one script, then measuring whether a chunking change helped
+costs half a day's budget, and Phase 3 gets roughly two experiments per day.
+Split, the retrieval half is free and unlimited, and the expensive half runs
+only when comparing final answer quality.
+
+This is the same reasoning as §4 on local embeddings, arriving from a different
+direction: **the parts of the loop I want to run constantly must not be metered.**
+Local embeddings make re-indexing free; splitting the eval makes re-measuring
+free. Together they mean a Phase 3 experiment costs time and nothing else.
+
+## 14. The baseline, and the labelling bug that nearly hid it
+
+Dense-only retrieval over 5,095 chunks scores **Recall@5 = 48.9%** across the 90
+non-refusal questions (`backend/eval/run_retrieval_eval.py`, full table in the
+[README](../README.md#measured-retrieval-baseline)). Under half the questions
+retrieve a correct page at the live `top_k=5`.
+
+Two readings change what Phase 3 should do first.
+
+**Widening k from 5 to 20 buys only 21 points** (48.9% to 70.0%). So most misses
+are not mis-ranked — they are never retrieved. A cross-encoder reranker can only
+reorder what dense search already returned, which means reranking cannot fix the
+bulk of this. Hybrid BM25 and better chunking come first. I had expected the
+opposite going in, and would have spent Phase 3 on the reranker.
+
+**Comparison questions behave differently.** `cross_document` recall goes 30% at
+k=5 to 70% at k=10, and all required documents are present in the top 20 for
+100% of them. Those chunks are being found and then crowded out, because one
+company's filing can occupy every slot. That is a top-k or per-document-quota
+fix, and it is nearly free — worth doing before anything expensive.
+
+**The bug worth recording:** my first run scored `lookup-01` — "what was TCS's
+revenue in FY 2024" — as a miss, even though the README already documented that
+exact question working. The system was right and my labels were wrong: I had
+labelled 3 pages, and the figure is actually stated on 10, including the
+consolidated P&L that retrieval was correctly returning.
+
+**An incomplete gold list reports a correct retrieval as a failure.** I fixed it
+by searching the corpus for each answer's distinctive figure and keeping pages
+where a matching label sits within 400 characters of it, which grew the set from
+189 to 281 gold pages. It is still not complete: facts identified only by a
+percentage (`20.7%`, `3.53 per cent`) are too common as tokens to expand that
+way, so a few questions' recall is understated. Stated here because a baseline
+whose error direction is unknown is not much of a baseline.
+
+## 15. What I would challenge if I were reviewing this
+
+- **Dense-only retrieval is the weakest link — now measured, not assumed.**
+  Exact-token queries (a specific metric name) are precisely where embeddings
+  underperform BM25, and financial questions are full of them. Recall@5 is
+  48.9%, and narrative questions (70%) outscore factual lookups (50%) by 20
+  points — which is the case for hybrid search stated as one number, since
+  narrative prose is exactly what dense embeddings are good at.
 - **Fixed 1000/200 chunking is unjustified.** Those numbers are conventional,
   not derived. Phase 2 exists partly to find out whether they are any good.
 - **`bge-small-en-v1.5` is English-only.** Indian filings contain some
   non-English content. `bge-m3` is multilingual, which is a second argument for
   it beyond raw quality.
-- **No automated tests in Phase 1**, deliberately — unit tests on chunk
-  boundaries would pass while retrieval quietly returned the wrong passages. The
-  eval set is the test that matters and it is Phase 2's deliverable. But until
-  then this repo's correctness rests on manual checks, which is a real gap.
+- **There are still no unit tests**, deliberately — tests on chunk boundaries
+  would pass while retrieval quietly returned the wrong passages. The eval set
+  is the test that matters, and the retrieval half of it now runs on every
+  change for free. The answer half is not built yet, so faithfulness and
+  citation accuracy still rest on hand-checked examples.
 - **One synthetic fixture is not a corpus.** Retrieval scores 5/5 top-1 on a
   6-page generated document. That verifies the *plumbing* and says nothing about
   quality on a 300-page annual report.
 
-## 13. A process note
+## 16. A process note
 
 While building the fixture generator I wrapped text at a fixed character width,
 which split words mid-token (`twelv` / `e month`). Extraction then produced

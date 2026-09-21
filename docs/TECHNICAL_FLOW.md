@@ -283,6 +283,91 @@ deliberate behaviours:
 
 ---
 
+## Part 3 — Evaluation
+
+The retrieval eval reuses Part 2's search path exactly, stopping before the
+model call. That is what makes it free, and it is also why its numbers describe
+the real system: it calls the same `similarity_search`, against the same
+collection, with the same embeddings.
+
+### 3.1 Loading — `run_retrieval_eval.py::load_questions()`
+
+Reads `questions.jsonl` and **drops the 12 refusal questions**. They carry no
+gold pages by definition — the answer is not in the corpus — so there is nothing
+for a retrieval metric to score. 90 questions remain.
+
+**Out:** `list[dict]`, each with `question` and `gold`.
+
+### 3.2 Gold expansion — `gold_pages()`
+
+```python
+{(entry["doc"], page) for entry in question["gold"] for page in entry["pages"]}
+```
+
+Flattens the per-document page lists into one set of `(doc, page)` pairs. These
+are **alternatives, not a checklist**: TCS's FY24 revenue is stated on ten pages,
+and retrieving any one of them is a correct result.
+
+### 3.3 Search — `retrieved_pages()`
+
+```python
+hits = store.similarity_search(question, k=max_k)
+[(h.metadata["source_path"].replace("\\", "/"), h.metadata["page"]) for h in hits]
+```
+
+One search per question at the largest cutoff, then sliced for each smaller `k` —
+so `R@5`, `R@10` and `R@20` cost one query, not three.
+
+The `replace("\\", "/")` is load-bearing. `source_path` is built from a Windows
+path at ingest time, and the question set is written with POSIX separators.
+Comparing them raw scores **every question as a miss** — a silent total failure
+that looks like catastrophically bad retrieval rather than a bug.
+
+### 3.4 Scoring — `reciprocal_rank()`, `ndcg_at_k()`, `documents_covered()`
+
+| Metric | Question it answers |
+|---|---|
+| Recall@k | Was a correct page in the top k *at all*? Decides whether an answer is possible. |
+| MRR@k | Was it near the top? Matters because the live setting is `top_k=5`. |
+| nDCG@k | Were *several* gold pages found high up? Matters for multi-year and comparison questions. |
+| documents covered | For `cross_document` only: is every company the question needs represented? |
+
+The last one exists because Recall@k flatters comparisons. "Which of the three
+spent most on CSR" counts as a hit the moment one company's page appears, though
+it cannot be answered without all three. Reporting both makes the gap visible:
+at k=5, recall is 30% but full document coverage is 50% — the documents are
+often there while the specific right pages are not.
+
+nDCG's ideal ranking is capped at `min(len(gold), k)`, so a question with two
+gold pages is not penalised for failing to fill twenty slots it could never fill.
+
+### 3.5 Output — `data/eval_runs/<timestamp>.json`
+
+Each run records the scores **and** the index that produced them — embedding
+model, collection, chunk size, overlap. A recall change means nothing if the
+index underneath it also changed, and six weeks later nobody remembers which
+settings a number came from.
+
+**Out:** a printed table, plus a JSON file with per-question hits and the ranked
+`retrieved` list for every question — which is what makes a regression
+diagnosable rather than merely visible.
+
+### 3.6 The guard — `validate_questions.py`
+
+Run before an eval, and after any parsing or chunking change:
+
+```bash
+python backend/eval/validate_questions.py
+```
+
+It re-parses the PDFs and checks that every gold page **survives
+`MIN_PAGE_CHARS`**. A gold page the parser drops is not in the index, so no
+retriever can ever return it; the question scores 0 permanently and reads as a
+retrieval failure. This is the eval's version of the project's "fail loudly on
+data problems" convention.
+
+---
+
 ## Failure modes and where they surface
 
 | Failure | Where it is caught | What you see |
@@ -293,6 +378,9 @@ deliberate behaviours:
 | Embedding model changed | same guard | 503 + "Re-index: ingest.py --recreate" |
 | `GROQ_API_KEY` unset | `main.chat`, `ask.py` | 503 / one-line CLI message |
 | Qdrant down | `/health` | `{"status": "degraded", "qdrant": "unreachable"}` |
+| Gold page dropped by the parser | `validate_questions.py` | "page N is dropped by parse.py ... relabel this question" |
+| Gold page past end of document | same | "page N is past the end of the document (M pages)" |
+| Refusal question given gold pages | same | "a refusal question must have no gold pages" |
 | Rate limit approached | `answer.get_model` limiter | Requests queue client-side |
 | Model invents a citation | `answer.cited_indexes` | Marker discarded |
 | Model answers uncited | CLI + UI | Explicit unreliability warning |

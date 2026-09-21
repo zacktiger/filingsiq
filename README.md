@@ -6,10 +6,12 @@ and earnings call transcripts — with **page-level citations** on every answer.
 Ask "what did management say about attrition in FY24?" and get an answer that
 names the document and the page, so the claim can be checked by hand.
 
-> **Status: Phase 1 (vertical slice).** One end-to-end path works: PDF on disk →
-> chunked → embedded → retrieved → cited answer, exposed over an HTTP API with a
-> minimal React page. The full plan is in [`project.md`](project.md); what is and
-> is not built yet is listed under [Roadmap](#roadmap).
+> **Status: Phase 2 (evaluation), in progress.** Phase 1's end-to-end path works:
+> PDF on disk → chunked → embedded → retrieved → cited answer, over an HTTP API
+> with a minimal React page. Phase 2's question set and retrieval eval are built
+> and have produced a [baseline](#measured-retrieval-baseline); the answer-quality
+> half is not built yet. The full plan is in [`project.md`](project.md); what is
+> and is not built is listed under [Roadmap](#roadmap).
 
 ## Phase 1 corpus and verification
 
@@ -32,8 +34,45 @@ page it cites.
 The Infosys miss is the useful result here. The figure sits in a KPI tile ("Operating
 margin 20.7%") with almost no surrounding prose, so a dense embedding of the
 question does not rank it highly. An exact-token query like this is what Phase 3's
-hybrid (BM25) search is meant to fix, and Phase 2's eval set will put a number on
-how often it happens.
+hybrid (BM25) search is meant to fix.
+
+Phase 2 has since put a number on how often it happens — see below. It is
+`lookup-19` in the question set, and it still misses.
+
+## Measured retrieval baseline
+
+Phase 2's question set is built: **102 questions**, each written by reading the
+filings, with the expected answer and every page that states it
+([`backend/eval/`](backend/eval/README.md)). Dense-only retrieval over 5,095
+chunks scores:
+
+| Category | n | Recall@5 | Recall@10 | Recall@20 | MRR@20 |
+|---|---:|---:|---:|---:|---:|
+| **All** | **90** | **48.9%** | **58.9%** | **70.0%** | **0.388** |
+| narrative | 10 | 70.0% | 70.0% | 80.0% | 0.386 |
+| multi_year | 11 | 54.5% | 63.6% | 81.8% | 0.497 |
+| lookup | 54 | 50.0% | 57.4% | 70.4% | 0.401 |
+| cross_document | 10 | 30.0% | 70.0% | 70.0% | 0.297 |
+| arithmetic_boundary | 5 | 20.0% | 20.0% | 20.0% | 0.200 |
+
+```bash
+python backend/eval/run_retrieval_eval.py    # reproduces the table; no tokens spent
+```
+
+Refusal questions are excluded — they have no gold page by definition, and are
+scored by the answer-half eval instead.
+
+**Two results that reorder Phase 3.** Widening k from 5 to 20 buys only 21
+points, so most misses are never retrieved rather than mis-ranked — and a
+reranker can only reorder what dense search already returned. Hybrid BM25 and
+structure-aware chunking come first; reranking second. The exception is
+comparison questions, where recall doubles from k=5 to k=10 because one
+company's filing can occupy every slot: that is a top-k or per-document-quota
+fix, and it is nearly free.
+
+Narrative questions (70%) beating factual lookups (50%) by 20 points is the
+argument for hybrid search in a single number — prose is what dense embeddings
+are good at, and exact metric names are not.
 
 ## Documentation
 
@@ -42,6 +81,7 @@ how often it happens.
 | **[Thought Process](docs/THOUGHT_PROCESS.md)** | Why it is built this way — options rejected, measured trade-offs, and where the obvious choice was wrong |
 | **[Architecture](docs/ARCHITECTURE.md)** | Component diagram, the provenance chain, data model, infrastructure |
 | **[Technical Flow](docs/TECHNICAL_FLOW.md)** | Line-level walkthrough of indexing and query, with failure modes |
+| **[Evaluation](backend/eval/README.md)** | The question set: schema, what each hard question breaks, scoring rules that are not obvious |
 | [project.md](project.md) | The original spec: all 8 phases, dataset scope, evaluation plan |
 | [CLAUDE.md](CLAUDE.md) | Constraints that silently break things if violated |
 
@@ -55,6 +95,8 @@ how often it happens.
 - **Refusal** — declines when the filings do not contain the answer, and when
   asked to predict performance or give investment advice
 - **Interfaces** — `POST /chat`, `GET /health`, a CLI, and a one-page React UI
+- **Evaluation** — 102 hand-labelled questions and a retrieval eval that runs
+  without spending a token, so retrieval changes can be measured continuously
 
 ## Architecture
 
@@ -138,6 +180,10 @@ python backend/scripts/ask.py "Revenue in FY24?" --company democo --show-chunks
 # API + UI
 uvicorn app.main:app --reload --app-dir backend    # http://localhost:8000/docs
 cd frontend && npm run dev                          # http://localhost:5173
+
+# Evaluation — neither of these calls a model, so both are free to repeat
+python backend/eval/validate_questions.py                  # gold labels still valid?
+python backend/eval/run_retrieval_eval.py --label "my-change"
 ```
 
 Re-run `ingest.py --recreate` after changing the embedding model, chunk size, or
@@ -190,7 +236,7 @@ Per [`project.md`](project.md). Phase 1 exists so the later phases can be
 | Phase | Status |
 |---|---|
 | 1. Vertical slice | **done** |
-| 2. Evaluation — 80–100 question test set, baseline metrics | next |
+| 2. Evaluation — 80–100 question test set, baseline metrics | **in progress** — [102-question set](backend/eval/README.md) built and validated; runner and baseline next |
 | 3. Retrieval upgrades — structure-aware chunking, hybrid search, reranking | |
 | 4. Query understanding — intent, aliases, time parsing | |
 | 5. Structured data — table extraction, text-to-SQL, LangGraph routing | |
