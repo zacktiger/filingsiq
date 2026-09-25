@@ -14,6 +14,10 @@ meant to measure:
     copy of the filing.
   * a refusal question that carries gold pages is self-contradictory: the whole
     point is that the answer is NOT in the corpus.
+  * a key fact (must_include / qualifiers) that does not appear in the
+    question's own expected_answer means the two have drifted apart - one of
+    them was edited without the other, and the answer eval would then score
+    against a fact nobody wrote down as correct.
 
 Run it before every eval run, and after any change to chunking or parsing:
 
@@ -29,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import RAW_DIR  # noqa: E402
 from app.rag.parse import page_count, parse_pdf  # noqa: E402
+from scoring import missing_terms, present_terms  # noqa: E402
 
 QUESTIONS_PATH = Path(__file__).resolve().parent / "questions.jsonl"
 
@@ -100,6 +105,9 @@ def main() -> int:
 
         refusal = question.get("expected_refusal")
         gold = question.get("gold") or []
+        must = question.get("must_include") or []
+        qualifiers = question.get("qualifiers") or []
+        must_not = question.get("must_not_include") or []
 
         if refusal is not None:
             if refusal not in REFUSAL_KINDS:
@@ -109,10 +117,28 @@ def main() -> int:
                     f"{qid}: a refusal question must have no gold pages - "
                     "if the answer is in the corpus, it is not a refusal"
                 )
+            if must or qualifiers or must_not:
+                problems.append(f"{qid}: a refusal question must have no key facts")
             continue
 
         if not gold:
             problems.append(f"{qid}: no gold pages and not marked as a refusal")
+
+        expected = question.get("expected_answer", "")
+        if not must:
+            problems.append(
+                f"{qid}: no must_include terms, so the answer eval cannot score it"
+            )
+        for term in missing_terms(must + qualifiers, expected):
+            problems.append(
+                f"{qid}: key fact {term!r} does not appear in expected_answer - "
+                "the two have drifted apart"
+            )
+        for term in present_terms(must_not, expected):
+            problems.append(
+                f"{qid}: must_not_include {term!r} appears in expected_answer, "
+                "so a correct answer would be scored as a violation"
+            )
 
         for entry in gold:
             doc = entry.get("doc", "")

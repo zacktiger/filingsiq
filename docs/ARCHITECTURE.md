@@ -69,9 +69,11 @@ HTTP, and `main.py` has no knowledge of PDFs.
 | `rag/store.py` | Qdrant index + search | Server-side metadata filtering; dimension guard |
 | `rag/answer.py` | Prompt, model call, citations | Resolves `[Sn]` markers; detects refusal; rate limits |
 | `main.py` | HTTP surface | Loads the model at startup, not per request |
-| `eval/questions.jsonl` | 102 labelled questions | Gold is a *list* of pages — alternative correct sources, any one of which counts |
+| `eval/questions.jsonl` | 121 labelled questions | Gold is a *list* of pages — alternative correct sources, any one of which counts |
 | `eval/validate_questions.py` | Guard the labels | Catches gold pages the parser drops, which would score 0 forever |
 | `eval/run_retrieval_eval.py` | Recall@k, MRR, nDCG | Runs without a model call, so it is free to repeat |
+| `eval/scoring.py` | Key-fact matching | Compares numbers as numbers, so `2,40,893` equals `240,893` |
+| `eval/run_answer_eval.py` | Correctness, refusal, citations, faithfulness | Diagnoses whether retrieval or generation failed; resumable across the daily limit |
 
 ---
 
@@ -167,34 +169,43 @@ embeddings need to move to their own service.
 ## The evaluation loop (Phase 2)
 
 A third pipeline, and the reason it is drawn separately is that it splits at the
-point where cost appears. Everything left of the dashed line is free and can run
-on every change; everything right of it spends from a 200K tokens/day budget.
+point where cost appears. Everything in the green box is free and can run on
+every change; everything in the purple box spends from a 200K tokens/day budget.
 
 ```mermaid
 graph LR
-    Q["questions.jsonl<br/>102 questions<br/>gold = doc + pages"]
+    Q["questions.jsonl<br/>121 questions<br/>gold pages + key facts"]
+    SC["scoring.py<br/>key-fact matcher<br/>(shared)"]
 
     subgraph free["FREE — no model call"]
         direction TB
-        V["validate_questions.py<br/>gold pages still parseable?"]
-        R["run_retrieval_eval.py<br/>Recall@k · MRR · nDCG"]
+        V["validate_questions.py<br/>gold pages parseable?<br/>key facts in expected answer?"]
+        R["run_retrieval_eval.py<br/>Recall@k · MRR@k · nDCG@k"]
     end
 
-    subgraph paid["METERED — ~965 tokens/question"]
+    subgraph paid["METERED — ~1,750 tokens/question"]
         direction TB
-        AN["answer eval (not built)<br/>faithfulness · citation accuracy<br/>correct refusal rate"]
+        AN["run_answer_eval.py<br/>correct · complete · refusal<br/>citations · diagnosis"]
+        J["faithfulness judge<br/>narrative questions only"]
+        AN --> J
     end
 
     QD[("Qdrant")]
+    G["Groq<br/>gpt-oss-120b"]
     PDFs["data/raw/*.pdf"]
 
     Q --> V
     Q --> R
     Q --> AN
+    SC -.-> V
+    SC -.-> AN
     V -.->|re-parses| PDFs
     R -.->|similarity_search| QD
-    AN -.->|POST /chat| QD
-    R --> OUT["data/eval_runs/*.json<br/>one file per run"]
+    AN -.->|"search() + answer_question()<br/>same calls as POST /chat"| QD
+    AN -.-> G
+    J -.-> G
+    R --> OUT["data/eval_runs/<br/>*.json · answers-*.jsonl<br/>one file per run"]
+    AN --> OUT
 
     style free fill:#1e3a2e,color:#fff
     style paid fill:#5a3fa8,color:#fff
@@ -204,10 +215,22 @@ graph LR
 **Why the split is structural rather than a flag.** Retrieval metrics need only
 the question and its gold pages, so they cost nothing and can run on every
 chunking or embedding change — which is the loop Phase 3 lives in. Answer
-metrics need a generation per question, so a full pass is roughly half a day's
-token budget. Merged into one runner, measuring a chunking change would cost the
-same as measuring answer quality, and Phase 3 would get about two experiments a
-day.
+metrics need a generation per question, so a full pass costs roughly the whole
+day's token budget. Merged into one runner, measuring a chunking change would
+cost the same as measuring answer quality, and Phase 3 would get one experiment
+a day.
+
+**Why the answer eval calls functions, not the HTTP endpoint.** It calls the same
+`search()` and `answer_question()` that `POST /chat` calls, in the same order —
+so it measures the real pipeline without needing the server running, and it can
+see the retrieved chunks, which the HTTP response does not expose. Those chunks
+are what let it diagnose *which half* of RAG failed.
+
+**Why it writes one line per question as it goes.** A full run can hit the daily
+token limit part way through. Results already paid for are kept, and `--resume`
+continues from where it stopped — after checking that the model, top_k and
+index are unchanged, since stitching answers from two configurations together
+would produce a baseline that describes neither.
 
 **What `validate_questions.py` guards.** A gold page that `parse.py` discards
 (under `MIN_PAGE_CHARS`) is not in the index, so no retriever can ever return

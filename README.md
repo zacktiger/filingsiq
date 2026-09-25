@@ -8,20 +8,22 @@ names the document and the page, so the claim can be checked by hand.
 
 > **Status: Phase 2 (evaluation), in progress.** Phase 1's end-to-end path works:
 > PDF on disk → chunked → embedded → retrieved → cited answer, over an HTTP API
-> with a minimal React page. Phase 2's question set and retrieval eval are built
-> and have produced a [baseline](#measured-retrieval-baseline); the answer-quality
-> half is not built yet. The full plan is in [`project.md`](project.md); what is
-> and is not built is listed under [Roadmap](#roadmap).
+> with a minimal React page. Phase 2's question set and both halves of the eval
+> — retrieval and answer quality — are built; the retrieval
+> [baseline](#measured-retrieval-baseline) is measured and the answer baseline is
+> the next run. The full plan is in [`project.md`](project.md); what is and is
+> not built is listed under [Roadmap](#roadmap).
 
 ## Phase 1 corpus and verification
 
-Indexed: the FY24 (2023-24) integrated annual reports of **TCS**, **Infosys**, and
-**HDFC Bank**, plus the synthetic DemoCo filing — 1,285 pages, 5,095 chunks with
-`bge-small-en-v1.5`. Source URLs are recorded in
+Indexed: the FY23 (2022-23) and FY24 (2023-24) integrated annual reports of
+**TCS**, **Infosys**, and **HDFC Bank**, plus the synthetic DemoCo filing —
+2,436 pages, 9,830 chunks with `bge-small-en-v1.5` (2,430 pages and 9,824 chunks
+from the six real reports). Source URLs are recorded in
 [`data/manifest.csv`](data/manifest.csv); the PDFs themselves are not committed.
 
-Spot-checked by hand: each answer below was compared against the text of the
-page it cites.
+Spot-checked by hand, when only the FY24 reports were indexed: each answer below
+was compared against the text of the page it cites.
 
 | Question | Answer | Cited page(s) | Verdict |
 |---|---|---|---|
@@ -41,38 +43,64 @@ Phase 2 has since put a number on how often it happens — see below. It is
 
 ## Measured retrieval baseline
 
-Phase 2's question set is built: **102 questions**, each written by reading the
+Phase 2's question set is built: **121 questions**, each written by reading the
 filings, with the expected answer and every page that states it
-([`backend/eval/`](backend/eval/README.md)). Dense-only retrieval over 5,095
-chunks scores:
+([`backend/eval/`](backend/eval/README.md)). Dense-only retrieval over 9,830
+chunks (FY23 + FY24) scores:
 
 | Category | n | Recall@5 | Recall@10 | Recall@20 | MRR@20 |
 |---|---:|---:|---:|---:|---:|
-| **All** | **90** | **48.9%** | **58.9%** | **70.0%** | **0.388** |
-| narrative | 10 | 70.0% | 70.0% | 80.0% | 0.386 |
-| multi_year | 11 | 54.5% | 63.6% | 81.8% | 0.497 |
-| lookup | 54 | 50.0% | 57.4% | 70.4% | 0.401 |
-| cross_document | 10 | 30.0% | 70.0% | 70.0% | 0.297 |
-| arithmetic_boundary | 5 | 20.0% | 20.0% | 20.0% | 0.200 |
+| **All** | **109** | **47.7%** | **57.8%** | **70.6%** | **0.380** |
+| lookup | 72 | 51.4% | 61.1% | 72.2% | 0.411 |
+| narrative | 11 | 45.5% | 72.7% | 81.8% | 0.317 |
+| multi_year | 11 | 45.5% | 45.5% | 54.5% | 0.461 |
+| arithmetic_boundary | 5 | 40.0% | 40.0% | 40.0% | 0.300 |
+| cross_document | 10 | 30.0% | 40.0% | 80.0% | 0.176 |
 
 ```bash
 python backend/eval/run_retrieval_eval.py    # reproduces the table; no tokens spent
 ```
 
 Refusal questions are excluded — they have no gold page by definition, and are
-scored by the answer-half eval instead.
+scored by the answer eval instead. Every run is kept in `data/eval_runs/`.
 
-**Two results that reorder Phase 3.** Widening k from 5 to 20 buys only 21
+**Adding a second year made retrieval worse, and that is the finding.** On the
+FY24-only corpus the original 90 questions scored 51.1% Recall@5. Indexing the
+FY23 reports dropped the same questions to 43.3% (41.1% before the gold lists
+were extended to FY23 pages that state the same fact): in every one of the 9
+lost hits, last year's report filled 3–5 of the top 5 slots, and in only one
+did an FY23 page actually state the answer. Two consecutive annual reports are near-duplicates
+in wording, so a dense embedding cannot tell "revenue in FY 2024" from
+"revenue in FY 2023" — the year is one token in a long, otherwise identical
+passage. 19 new FY23 questions show the same confusion from the other side:
+39 of their 95 top-5 slots went to FY24 pages.
+
+Measured with the correct company and year supplied as a filter (taken from
+the gold labels, so an upper bound for Phase 4's time parsing):
+
+| Filter | Recall@5 | Recall@10 | Recall@20 |
+|---|---:|---:|---:|
+| none (baseline) | 47.7% | 57.8% | 70.6% |
+| company | 48.6% | 58.7% | 70.6% |
+| company + fiscal year | 58.7% | 68.8% | 76.1% |
+
+The company adds almost nothing — questions name it, and dense search already
+stays inside the right company. The year is worth 11 points. The remaining 41%
+of misses survive a perfect filter, so they are a retrieval-quality problem
+that parsing the question cannot fix.
+
+**Two results that reorder Phase 3.** Widening k from 5 to 20 buys only 23
 points, so most misses are never retrieved rather than mis-ranked — and a
 reranker can only reorder what dense search already returned. Hybrid BM25 and
 structure-aware chunking come first; reranking second. The exception is
-comparison questions, where recall doubles from k=5 to k=10 because one
+comparison questions, where recall climbs from 30% at k=5 to 80% at k=20 because one
 company's filing can occupy every slot: that is a top-k or per-document-quota
 fix, and it is nearly free.
 
-Narrative questions (70%) beating factual lookups (50%) by 20 points is the
-argument for hybrid search in a single number — prose is what dense embeddings
-are good at, and exact metric names are not.
+On the FY24-only corpus, narrative questions (70%) beat factual lookups (50%) by
+20 points — prose is what dense embeddings are good at, and exact metric names
+are not. With FY23 indexed, the same 10 narrative questions fell to 50% — the
+steepest drop of any category.
 
 ## Documentation
 
@@ -80,7 +108,7 @@ are good at, and exact metric names are not.
 |---|---|
 | **[Thought Process](docs/THOUGHT_PROCESS.md)** | Why it is built this way — options rejected, measured trade-offs, and where the obvious choice was wrong |
 | **[Architecture](docs/ARCHITECTURE.md)** | Component diagram, the provenance chain, data model, infrastructure |
-| **[Technical Flow](docs/TECHNICAL_FLOW.md)** | Line-level walkthrough of indexing and query, with failure modes |
+| **[Technical Flow](docs/TECHNICAL_FLOW.md)** | Line-level walkthrough of indexing, query and evaluation, with failure modes |
 | **[Evaluation](backend/eval/README.md)** | The question set: schema, what each hard question breaks, scoring rules that are not obvious |
 | [project.md](project.md) | The original spec: all 8 phases, dataset scope, evaluation plan |
 | [CLAUDE.md](CLAUDE.md) | Constraints that silently break things if violated |
@@ -95,8 +123,9 @@ are good at, and exact metric names are not.
 - **Refusal** — declines when the filings do not contain the answer, and when
   asked to predict performance or give investment advice
 - **Interfaces** — `POST /chat`, `GET /health`, a CLI, and a one-page React UI
-- **Evaluation** — 102 hand-labelled questions and a retrieval eval that runs
-  without spending a token, so retrieval changes can be measured continuously
+- **Evaluation** — 121 hand-labelled questions, a retrieval eval that runs
+  without spending a token, and an answer eval that scores correctness,
+  refusal and citations and says *which half* of RAG failed on each question
 
 ## Architecture
 
@@ -181,9 +210,13 @@ python backend/scripts/ask.py "Revenue in FY24?" --company democo --show-chunks
 uvicorn app.main:app --reload --app-dir backend    # http://localhost:8000/docs
 cd frontend && npm run dev                          # http://localhost:5173
 
-# Evaluation — neither of these calls a model, so both are free to repeat
-python backend/eval/validate_questions.py                  # gold labels still valid?
+# Evaluation — these two call no model, so both are free to repeat
+python backend/eval/validate_questions.py                  # labels still valid?
 python backend/eval/run_retrieval_eval.py --label "my-change"
+
+# Answer evaluation — spends ~1,750 tokens per question, ~1 day's budget in full
+python backend/eval/run_answer_eval.py --label "my-change"
+python backend/eval/run_answer_eval.py --resume data/eval_runs/answers-<stamp>.jsonl
 ```
 
 Re-run `ingest.py --recreate` after changing the embedding model, chunk size, or
@@ -201,11 +234,15 @@ targeted `claude-opus-5`, where the opposite rule applied — that model *reject
 applies.)
 
 **The free tier's real limit is tokens per day, not requests.** 200,000 tokens/day
-≈ **207 questions** (measured: 965 tokens per question — 810 in, 155 out, at
-top_k=5), so Phase 2's 80–100 question eval fits about twice a day and shares
-that budget with interactive use.
-`answer.py` installs a client-side `InMemoryRateLimiter` so a batch of eval
-questions queues locally instead of collecting HTTP 429s part way through a run.
+≈ **114 questions** (measured on the real corpus: ~1,750 tokens per question,
+input 1,325–1,805, at top_k=5). A full 121-question answer eval therefore needs
+slightly more than one day's budget, shared with interactive use — which is why it is
+resumable. An earlier figure of 965 tokens was measured on the small synthetic
+fixture and understated the real cost by nearly half.
+
+Two different rate limits apply. `answer.py`'s `InMemoryRateLimiter` caps
+*requests* (0.4/s); the 8K tokens-per-*minute* limit is what a batch run hits
+first, so the answer eval paces itself on tokens actually spent.
 
 **Why raw PyMuPDF, not a LangChain document loader.** Every LangChain PDF loader
 lives in `langchain_community.document_loaders` (being sunset), and the one
@@ -236,7 +273,7 @@ Per [`project.md`](project.md). Phase 1 exists so the later phases can be
 | Phase | Status |
 |---|---|
 | 1. Vertical slice | **done** |
-| 2. Evaluation — 80–100 question test set, baseline metrics | **in progress** — [102-question set](backend/eval/README.md) built and validated; runner and baseline next |
+| 2. Evaluation — 80–100 question test set, baseline metrics | **in progress** — [121-question set](backend/eval/README.md), retrieval eval and answer eval built; retrieval baseline measured; answer baseline next |
 | 3. Retrieval upgrades — structure-aware chunking, hybrid search, reranking | |
 | 4. Query understanding — intent, aliases, time parsing | |
 | 5. Structured data — table extraction, text-to-SQL, LangGraph routing | |

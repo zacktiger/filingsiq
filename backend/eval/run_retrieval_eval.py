@@ -2,8 +2,8 @@
 Retrieval half of the Phase 2 eval: does search find the right page at all?
 
 This runs NO model and spends NO tokens. That is the whole design point. The
-answer half of the eval costs ~965 tokens per question, so a full run is about
-half of Groq's 200K/day budget and can happen maybe twice a day. Retrieval
+answer half of the eval costs ~1,750 tokens per question, so a full run is
+roughly all of Groq's 200K/day budget and can happen about once a day. Retrieval
 metrics need only the question and its gold pages, so they can run on every
 chunking, embedding or top_k change - which is the loop Phase 3 lives in.
 

@@ -335,7 +335,7 @@ that looks like catastrophically bad retrieval rather than a bug.
 The last one exists because Recall@k flatters comparisons. "Which of the three
 spent most on CSR" counts as a hit the moment one company's page appears, though
 it cannot be answered without all three. Reporting both makes the gap visible:
-at k=5, recall is 30% but full document coverage is 50% — the documents are
+at k=5, recall is 40% but full document coverage is 50% — the documents are
 often there while the specific right pages are not.
 
 nDCG's ideal ranking is capped at `min(len(gold), k)`, so a question with two
@@ -366,6 +366,94 @@ retriever can ever return it; the question scores 0 permanently and reads as a
 retrieval failure. This is the eval's version of the project's "fail loudly on
 data problems" convention.
 
+It also checks that every **key fact** (`must_include`, `qualifiers`) appears in
+the question's own `expected_answer`, using the same matcher the answer eval
+uses. If someone edits the expected answer and forgets the key facts, the
+validator fails instead of the eval silently scoring against a fact nobody
+wrote down as correct.
+
+## Part 4 — Answer evaluation
+
+`run_answer_eval.py` runs Part 2 *in full*, including the model call — so unlike
+Part 3 it spends tokens, about 1,750 per question.
+
+### 4.1 Opening the run — `open_run()`
+
+Creates `data/eval_runs/answers-<timestamp>.jsonl` plus a `.config.json` holding
+the answer model, reasoning effort, temperature, `top_k`, embedding model and
+chunk settings. With `--resume <file>` it instead reopens a partial run, reads
+which question ids are done, and **refuses to continue if any setting changed**.
+
+### 4.2 Warm-up
+
+```python
+get_embeddings().embed_query("warmup")
+```
+
+Loads the embedding model before the clock starts. Without it the first
+question's latency includes ~50s of loading weights (measured). The LLM is
+deliberately *not* warmed — that would spend tokens on nothing.
+
+### 4.3 One question — `evaluate_one()`
+
+```python
+with get_usage_metadata_callback() as usage:
+    chunks = search(request)
+    response = answer_question(request, chunks)
+```
+
+Exactly the two calls `main.chat` makes. The `get_usage_metadata_callback`
+context manager (from `langchain-core`) records the tokens every model call
+inside it used, so the run's cost is measured, not estimated. For narrative
+questions a second call — the faithfulness judge — happens inside the same
+block, so its tokens are counted too.
+
+### 4.4 Scoring — `score()` and `scoring.py`
+
+| Check | Rule |
+|---|---|
+| correct | not refused, every `must_include` present, no `must_not_include` present |
+| complete | correct, and every `qualifier` present |
+| retrieval hit | every document the question needs had a gold page in the 5 retrieved chunks |
+| diagnosis | retrieval hit × correct → one of four buckets |
+| cited a gold page | any citation's `(doc, page)` is in gold |
+
+`scoring.term_present()` compares numeric terms **as numbers**: it pulls every
+number out of the answer, strips digit grouping, and checks membership. That is
+what makes `2,40,893` equal `240,893` and stops `46` matching inside `146,463`.
+Non-numeric terms are a case-insensitive substring match. `"b s r|bsr"` means
+either spelling passes.
+
+For refusal questions there is only one check: `correct = response.refused`.
+
+### 4.5 The judge — `judge_faithfulness()`
+
+Narrative questions only. The model receives the same numbered SOURCES block the
+answer was written from (`format_sources`, reused from `answer.py`) and the
+answer, and returns JSON listing each claim as supported or not. Faithfulness is
+supported claims ÷ all claims. A reply that is not valid JSON is recorded as a
+judge error rather than raised, so one bad reply cannot discard a run whose
+earlier questions already cost tokens.
+
+### 4.6 Pacing
+
+```python
+needed = tokens_this_question / tokens_per_minute * 60
+time.sleep(max(0, needed - elapsed))
+```
+
+After each question the runner waits until that question's tokens fit inside a
+7,000 tokens/minute budget, under Groq's 8,000. `answer.py`'s rate limiter
+cannot do this — it counts requests, not tokens.
+
+### 4.7 Stopping — and why an error is not a wrong answer
+
+Any exception (most likely the daily token limit) **stops the run**. It is not
+recorded as a wrong answer, because a quota error says nothing about answer
+quality and would drag the baseline down for a reason unrelated to the system.
+Everything answered so far is already on disk, and the runner prints the exact
+`--resume` command.
+
 ---
 
 ## Failure modes and where they surface
@@ -381,6 +469,9 @@ data problems" convention.
 | Gold page dropped by the parser | `validate_questions.py` | "page N is dropped by parse.py ... relabel this question" |
 | Gold page past end of document | same | "page N is past the end of the document (M pages)" |
 | Refusal question given gold pages | same | "a refusal question must have no gold pages" |
+| Key fact drifted from expected answer | same | "key fact '3.53' does not appear in expected_answer" |
+| Daily token limit mid-run | `run_answer_eval.py` | "Stopped at lookup-61 ..." plus the `--resume` command |
+| Resuming after a settings change | `open_run()` | "Cannot resume: settings changed (top_k) ..." |
 | Rate limit approached | `answer.get_model` limiter | Requests queue client-side |
 | Model invents a citation | `answer.cited_indexes` | Marker discarded |
 | Model answers uncited | CLI + UI | Explicit unreliability warning |

@@ -144,15 +144,29 @@ since been cut to roughly 20 requests/day, which **cannot run an 80–100 questi
 eval**. Since that eval is Phase 2's entire deliverable, the most attractive
 option on paper was disqualified by the one number that mattered.
 
-**The binding constraint is tokens/day, not requests/day.** Measured on this
-pipeline: **965 tokens per question** (810 in, 155 out, at `top_k=5`), ~4.7s
-latency. That is ~207 questions/day — about *two* full eval runs, shared with
-interactive use. (My pre-measurement estimate was ~2K tokens and ~100
-questions; the real figure is twice as generous.) Two consequences:
+**The binding constraint is tokens/day, not requests/day** — and I measured it
+wrong the first time. My pre-measurement estimate was ~2K tokens per question,
+~100 questions/day. I then "measured" **965 tokens** (810 in, 155 out) and
+concluded the budget was twice as generous as feared, ~207 questions/day.
 
-- `answer.py` installs a client-side rate limiter (0.4 req/s against a 0.5
-  limit) so a batch eval queues locally instead of collecting HTTP 429s halfway
-  through a run.
+The Phase 2 answer eval measured it again on real questions over the real
+corpus: **input 1,325–1,805 tokens, ~1,750 per question all in** — roughly
+**114 questions/day**. The 965 figure was almost certainly taken against the
+synthetic DemoCo fixture, whose short chunks make a much smaller prompt than
+five 1,000-character chunks from a real annual report. So the guess was closer
+than the measurement, because the measurement was taken on the wrong data.
+
+**Lesson:** a measurement is only as good as the input it was taken on. A
+benchmark on a fixture tells you about the fixture.
+
+Three consequences:
+
+- A full answer-eval run over 102 questions costs **roughly the whole day's
+  budget**, not half. It is resumable (`--resume`) for exactly this reason.
+- `answer.py`'s rate limiter (0.4 req/s) caps *requests*, but the limit a batch
+  run hits first is **8K tokens per minute**. At ~1,750 tokens and ~2s per
+  question an unpaced run would try to spend ~50K tokens/minute, so the eval
+  runner paces itself on tokens actually spent.
 - `max_tokens` is capped at 1024, because output tokens spend from the same
   budget as the eval.
 
@@ -231,12 +245,12 @@ runners, not one**.
 
 Retrieval metrics — Recall@k, MRR, nDCG — need the question and its gold pages
 and nothing else. No model call. No tokens. Answer metrics — faithfulness,
-citation accuracy, correct refusal — need a generation per question, at ~965
-tokens each, so one full pass over 102 questions is about half of Groq's
-200K/day.
+citation accuracy, correct refusal — need a generation per question, at ~1,750
+tokens each on the real corpus, so one full pass over 102 questions is roughly
+all of Groq's 200K/day (see §8 for how I first got this number wrong).
 
 If those live in one script, then measuring whether a chunking change helped
-costs half a day's budget, and Phase 3 gets roughly two experiments per day.
+costs a whole day's budget, and Phase 3 gets one experiment per day.
 Split, the retrieval half is free and unlimited, and the expensive half runs
 only when comparing final answer quality.
 
@@ -247,21 +261,21 @@ free. Together they mean a Phase 3 experiment costs time and nothing else.
 
 ## 14. The baseline, and the labelling bug that nearly hid it
 
-Dense-only retrieval over 5,095 chunks scores **Recall@5 = 48.9%** across the 90
+Dense-only retrieval over 5,095 chunks scores **Recall@5 = 51.1%** across the 90
 non-refusal questions (`backend/eval/run_retrieval_eval.py`, full table in the
-[README](../README.md#measured-retrieval-baseline)). Under half the questions
+[README](../README.md#measured-retrieval-baseline)). Barely half the questions
 retrieve a correct page at the live `top_k=5`.
 
 Two readings change what Phase 3 should do first.
 
-**Widening k from 5 to 20 buys only 21 points** (48.9% to 70.0%). So most misses
+**Widening k from 5 to 20 buys only 21 points** (51.1% to 72.2%). So most misses
 are not mis-ranked — they are never retrieved. A cross-encoder reranker can only
 reorder what dense search already returned, which means reranking cannot fix the
 bulk of this. Hybrid BM25 and better chunking come first. I had expected the
 opposite going in, and would have spent Phase 3 on the reranker.
 
-**Comparison questions behave differently.** `cross_document` recall goes 30% at
-k=5 to 70% at k=10, and all required documents are present in the top 20 for
+**Comparison questions behave differently.** `cross_document` recall goes 40% at
+k=5 to 80% at k=10, and all required documents are present in the top 20 for
 100% of them. Those chunks are being found and then crowded out, because one
 company's filing can occupy every slot. That is a top-k or per-document-quota
 fix, and it is nearly free — worth doing before anything expensive.
@@ -280,12 +294,75 @@ percentage (`20.7%`, `3.53 per cent`) are too common as tokens to expand that
 way, so a few questions' recall is understated. Stated here because a baseline
 whose error direction is unknown is not much of a baseline.
 
-## 15. What I would challenge if I were reviewing this
+That prediction was tested almost immediately. The first answer-eval smoke run
+showed `cross-01` retrieving TCS p.76 — which states the 24.6% operating margin —
+and that page was missing from the question's gold list. Adding it (and the same
+page to `arith-04`) moved Recall@5 from **48.9% to 51.1%**. The direction was
+exactly the one predicted: correcting labels only ever raised the score. Both
+runs are kept in `data/eval_runs/` so the correction is visible, not just
+asserted.
+
+## 15. The answer eval checks key facts, not a judge's opinion
+
+The standard move for grading RAG answers is an LLM judge: show a model the
+question, the expected answer and the actual answer, and ask whether they match.
+I used one only where nothing simpler works.
+
+Every question in this set asks for a figure or a name. So each carries
+**key facts** — the smallest things a correct answer must contain:
+
+| Field | Meaning | Example |
+|---|---|---|
+| `must_include` | all present, or the answer is **wrong** | `["3.53"]` |
+| `qualifiers` | all present, or the answer is **incomplete** | `["core"]` — Core NIM, not NIM |
+| `must_not_include` | none present, or it broke a rule | `["87,223"]` — TCS minus Infosys revenue |
+
+Numbers are compared *as numbers*, so the filing's `2,40,893` matches a model's
+`240,893`, and `46` does not match inside `146,463` — a substring check gets
+both of those wrong. The matcher is shared by the validator and the runner, and
+the validator insists every key fact appears in the question's own
+`expected_answer`, so the two cannot drift apart.
+
+**Why not a judge for everything:** a judge is a second model whose verdicts I
+would then have to trust and defend, and it roughly doubles a run's token cost —
+when a run already costs the whole day's budget (§8). A string check is free,
+deterministic, and verifiable by eye. The judge is kept for exactly one job:
+**faithfulness** on the 10 narrative questions, where the answer is free text
+and a string check can confirm the key figure but cannot tell whether the rest
+of the paragraph was invented.
+
+**The diagnosis is the reason the eval has two halves.** Each answerable question
+lands in one of four buckets, by crossing "was a gold page retrieved?" with "was
+the answer correct?":
+
+| | answer correct | answer wrong or refused |
+|---|---|---|
+| **gold page retrieved** | correct | **generation failure** → fix the prompt |
+| **gold page not retrieved** | correct from an unlabelled page → expand gold | **retrieval failure** → fix search |
+
+For a comparison question, "retrieved" means *every* company's page came back —
+TCS's margin alone cannot answer "TCS or Infosys?", and counting it as a hit
+would blame generation for a retrieval failure. I wrote that rule the lenient
+way first and caught it on the first test.
+
+**The smoke run already paid for itself.** Six questions, before the full run:
+
+- `arith-05` retrieved the right page — *"decreased marginally to 40.2 per cent
+  in FY24 from 40.4 per cent"* — and **refused anyway**. Prompt rule 4 says
+  "report the figures and say the calculation is not available"; rule 5 says
+  "if the sources do not contain the answer, refuse". Asked for a basis-point
+  difference, the model chose rule 5. A generation failure, caused by two rules
+  competing, and exactly what the `arithmetic_boundary` category exists to catch.
+- `lookup-35` reproduced the Phase 1 "Core NIM" omission word for word — scored
+  correct, not complete.
+- It measured the real token cost, which corrected §8.
+
+## 16. What I would challenge if I were reviewing this
 
 - **Dense-only retrieval is the weakest link — now measured, not assumed.**
   Exact-token queries (a specific metric name) are precisely where embeddings
   underperform BM25, and financial questions are full of them. Recall@5 is
-  48.9%, and narrative questions (70%) outscore factual lookups (50%) by 20
+  51.1%, and narrative questions (70%) outscore factual lookups (50%) by 20
   points — which is the case for hybrid search stated as one number, since
   narrative prose is exactly what dense embeddings are good at.
 - **Fixed 1000/200 chunking is unjustified.** Those numbers are conventional,
@@ -295,14 +372,18 @@ whose error direction is unknown is not much of a baseline.
   it beyond raw quality.
 - **There are still no unit tests**, deliberately — tests on chunk boundaries
   would pass while retrieval quietly returned the wrong passages. The eval set
-  is the test that matters, and the retrieval half of it now runs on every
-  change for free. The answer half is not built yet, so faithfulness and
-  citation accuracy still rest on hand-checked examples.
+  is the test that matters: the retrieval half runs on every change for free,
+  and the answer half runs deliberately because it costs a day's budget.
+- **The faithfulness judge grades its own work.** It is the same model that
+  wrote the answer, and models tend to rate their own output generously, so
+  faithfulness is an upper bound. It is confined to the 10 narrative questions
+  for that reason; every other answer metric is a string check.
 - **One synthetic fixture is not a corpus.** Retrieval scores 5/5 top-1 on a
   6-page generated document. That verifies the *plumbing* and says nothing about
-  quality on a 300-page annual report.
+  quality on a 300-page annual report. §8 is what this looks like when it bites:
+  the token cost measured on the fixture was wrong by nearly half.
 
-## 16. A process note
+## 17. A process note
 
 While building the fixture generator I wrapped text at a fixed character width,
 which split words mid-token (`twelv` / `e month`). Extraction then produced

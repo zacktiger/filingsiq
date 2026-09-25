@@ -44,11 +44,12 @@ These will silently break things if violated.
    that model rejects `temperature` with a 400. Re-check when changing provider.)
 
 2. **Respect the free-tier token budget.** Groq free tier: 30 req/min,
-   1,000 req/day, **200K tokens/day** — the last is binding (~207 questions,
-   measured at 965 tokens each), and
-   interactive use shares it with Phase 2 eval runs. `answer.py` installs an
-   `InMemoryRateLimiter` at `REQUESTS_PER_SECOND=0.4`; removing it makes batch
-   eval runs die on HTTP 429 partway through.
+   1,000 req/day, 8K tokens/min, **200K tokens/day** — the last is binding
+   (~114 questions at ~1,750 tokens each on the real corpus; an older figure of
+   965 was measured on the synthetic fixture and is wrong), and interactive use
+   shares it with eval runs. A full answer-eval run is roughly the whole day.
+   `answer.py`'s `InMemoryRateLimiter` (0.4 req/s) caps requests only; the
+   answer eval additionally paces on tokens/min. Remove neither.
 
 3. **Do not import from `langchain_community`.** It is being sunset. This project
    uses only maintained 1.x packages: `langchain-core`,
@@ -95,7 +96,8 @@ backend/app/
     store.py                Qdrant: index, dim guard, filters, search
     answer.py               prompt, Groq call, rate limiter, citations, refusal
 backend/scripts/            ingest.py, ask.py, make_test_pdf.py
-backend/eval/               questions.jsonl (Phase 2 set), validate_questions.py
+backend/eval/               questions.jsonl, scoring.py, validate_questions.py,
+                            run_retrieval_eval.py (free), run_answer_eval.py (tokens)
 frontend/src/App.jsx        single-page UI (plain fetch + useState by design)
 data/raw/{company}/{fy}/{doc_type}.pdf
 data/manifest.csv           company_name, sector, source_url
@@ -114,13 +116,13 @@ data/manifest.csv           company_name, sector, source_url
   Renaming one means updating all three and re-indexing.
 - **Phase 1 has no automated tests, deliberately.** Phase 2 is the eval harness,
   and that is where the effort belongs. The question set now lives at
-  `backend/eval/questions.jsonl` (102 questions, gold pages verified against
+  `backend/eval/questions.jsonl` (121 questions, gold pages verified against
   parsed text); `validate_questions.py` guards it and costs no tokens. Don't add
   speculative unit tests on chunk boundaries — extend the eval instead.
 - **Split the eval by cost.** Recall@k / MRR / nDCG need no model call, so they
-  can run on every retrieval change; answer scoring costs ~965 tokens/question
-  and ~half the daily budget per full run. Keep the two runners separate, or
-  Phase 3 iterates twice a day instead of freely.
+  can run on every retrieval change; answer scoring costs ~1,750 tokens/question
+  and roughly the whole daily budget per full run. Keep the two runners
+  separate, or Phase 3 gets one experiment a day instead of unlimited ones.
 - Don't add dependencies from later phases (LangGraph, Postgres, Redis,
   Tailwind, TanStack Query) until that phase is actually being built.
 
