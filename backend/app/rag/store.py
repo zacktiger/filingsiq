@@ -18,6 +18,7 @@ as zero search results.
 
 import json
 from datetime import datetime, timezone
+from functools import lru_cache
 
 from langchain_core.documents import Document
 from langchain_qdrant import QdrantVectorStore
@@ -26,6 +27,7 @@ from qdrant_client import models as qmodels
 
 from app.config import DATA_DIR, get_settings
 from app.rag.embed import get_embeddings
+from app.rag.query import infer_fiscal_year
 from app.schemas import ChatRequest
 
 # Build info written after each successful ingest. Not required by the app - it
@@ -182,11 +184,52 @@ def build_filter(request: ChatRequest) -> qmodels.Filter | None:
     return qmodels.Filter(must=conditions) if conditions else None
 
 
-def search(request: ChatRequest) -> list[Document]:
+@lru_cache
+def _fiscal_year_indexed(collection: str, fiscal_year: str) -> bool:
+    """Whether any chunk in the collection belongs to this fiscal year.
+
+    Asked of the index rather than of data/raw/, because the index is what
+    search runs against. Cached per process: a new year only appears after a
+    re-ingest, and the API is restarted after one anyway.
+    """
+    count = get_client().count(
+        collection,
+        count_filter=qmodels.Filter(
+            must=[
+                qmodels.FieldCondition(
+                    key="metadata.fiscal_year",
+                    match=qmodels.MatchValue(value=fiscal_year),
+                )
+            ]
+        ),
+        # Must be exact: the approximate count is an estimate that reports
+        # non-zero for years with no chunks at all (FY19, FY25 were let through).
+        exact=True,
+    )
+    return count.count > 0
+
+
+def with_inferred_filters(request: ChatRequest) -> ChatRequest:
+    """Fill in the fiscal year from the question when the caller gave none.
+
+    An explicit filter always wins. An inferred year that is not indexed -
+    "FY 2019", answerable only from a later report's history table, or a
+    future year in a forecast question - is dropped, so it widens to the whole
+    corpus instead of filtering to an empty result.
+    """
+    if request.fiscal_year:
+        return request
+    year = infer_fiscal_year(request.question)
+    if year and _fiscal_year_indexed(get_settings().collection_name, year):
+        return request.model_copy(update={"fiscal_year": year})
+    return request
+
+
+def search(request: ChatRequest, k: int | None = None) -> list[Document]:
     """Retrieve the chunks most similar to the question."""
     settings = get_settings()
     return get_store().similarity_search(
         request.question,
-        k=settings.top_k,
-        filter=build_filter(request),
+        k=k or settings.top_k,
+        filter=build_filter(with_inferred_filters(request)),
     )

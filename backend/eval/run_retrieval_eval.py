@@ -47,7 +47,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import DATA_DIR, get_settings  # noqa: E402
-from app.rag.store import get_store  # noqa: E402
+from app.rag.store import build_filter, get_store, with_inferred_filters  # noqa: E402
+from app.schemas import ChatRequest  # noqa: E402
 
 QUESTIONS_PATH = Path(__file__).resolve().parent / "questions.jsonl"
 RUNS_DIR = DATA_DIR / "eval_runs"
@@ -85,14 +86,23 @@ def gold_pages(question: dict) -> set[tuple[str, int]]:
     return {(entry["doc"], page) for entry in question["gold"] for page in entry["pages"]}
 
 
-def retrieved_pages(store, question: str, k: int) -> list[tuple[str, int]]:
+def retrieved_pages(
+    store, question: str, k: int, year_filter: bool = True
+) -> list[tuple[str, int]]:
     """Run one search and return its (document, page) list in rank order.
+
+    Filters go through the same with_inferred_filters() as store.search(), so
+    the eval measures what the API actually does. year_filter=False reproduces
+    the unfiltered baseline.
 
     Paths are normalised to forward slashes because `source_path` is built from
     a Windows path at ingest time but the question set is written with POSIX
     separators. Comparing them raw silently scores every question as a miss.
     """
-    hits = store.similarity_search(question, k=k)
+    request = ChatRequest(question=question)
+    if year_filter:
+        request = with_inferred_filters(request)
+    hits = store.similarity_search(question, k=k, filter=build_filter(request))
     return [
         (hit.metadata["source_path"].replace("\\", "/"), hit.metadata["page"])
         for hit in hits
@@ -155,6 +165,11 @@ def main() -> int:
     parser.add_argument(
         "--no-save", action="store_true", help="print results without writing a file"
     )
+    parser.add_argument(
+        "--no-year-filter",
+        action="store_true",
+        help="do not infer a fiscal-year filter from the question (the pre-Phase-4 baseline)",
+    )
     args = parser.parse_args()
 
     ks = sorted(set(args.k))
@@ -173,7 +188,9 @@ def main() -> int:
 
     for question in questions:
         gold = gold_pages(question)
-        retrieved = retrieved_pages(store, question["question"], max_k)
+        retrieved = retrieved_pages(
+            store, question["question"], max_k, year_filter=not args.no_year_filter
+        )
 
         hits = {k: any(item in gold for item in retrieved[:k]) for k in ks}
         rr = reciprocal_rank(retrieved, gold)
@@ -205,7 +222,11 @@ def main() -> int:
 
     header = f"{'category':22} {'n':>3}  " + "  ".join(f"R@{k:<4}" for k in ks)
     header += f"  MRR@{max_k}  nDCG@{max_k}"
-    print(f"\n{settings.embedding_model}  |  top_k as evaluated: {ks}")
+    year_mode = "off" if args.no_year_filter else "inferred"
+    print(
+        f"\n{settings.embedding_model}  |  year filter: {year_mode}  |  "
+        f"top_k as evaluated: {ks}"
+    )
     print(header)
     print("-" * len(header))
     for category in sorted(totals, key=lambda c: (c != "ALL", c)):
@@ -246,6 +267,7 @@ def main() -> int:
                 "collection": settings.collection_name,
                 "chunk_size": settings.chunk_size,
                 "chunk_overlap": settings.chunk_overlap,
+                "year_filter": not args.no_year_filter,
                 "ks": ks,
                 "questions": len(questions),
                 "summary": {

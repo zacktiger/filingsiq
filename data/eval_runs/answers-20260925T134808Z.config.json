@@ -1,0 +1,15 @@
+{
+  "started_at": "2026-09-25T13:48:08.677600+00:00",
+  "label": "phase2-answer-baseline-bge-small-fy-filter",
+  "config": {
+    "answer_model": "openai/gpt-oss-120b",
+    "answer_effort": "medium",
+    "answer_temperature": 0.0,
+    "answer_max_tokens": 1024,
+    "top_k": 5,
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "collection": "filings_bge_small_en_v15",
+    "chunk_size": 1000,
+    "chunk_overlap": 200
+  }
+}
