@@ -1,0 +1,8 @@
+{
+  "collection": "filings_bge_small_en_v15",
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "vector_name": "",
+  "dim": 384,
+  "distance": "Cosine",
+  "count": 9830
+}

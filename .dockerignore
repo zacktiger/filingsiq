@@ -1,0 +1,13 @@
+# Only backend/, frontend sources and data/index_export/ belong in the image.
+.env
+.git
+.venv
+**/__pycache__
+**/node_modules
+frontend/dist
+data/raw
+data/eval_runs
+data/index_meta.json
+qdrant_storage
+.cache
+docs

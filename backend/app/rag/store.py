@@ -16,9 +16,13 @@ collection, and hand-rolling the collection risks a mismatch that only shows up
 as zero search results.
 """
 
+import gzip
 import json
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
+
+import numpy as np
 
 from langchain_core.documents import Document
 from langchain_qdrant import QdrantVectorStore
@@ -40,9 +44,58 @@ class IndexMismatchError(Exception):
     """Raised when the existing collection does not match the configured model."""
 
 
+@lru_cache
 def get_client() -> QdrantClient:
-    """Connect to Qdrant."""
-    return QdrantClient(url=get_settings().qdrant_url)
+    """The one Qdrant client for this process.
+
+    Cached because in-memory mode holds the whole index inside the client
+    object: a second client would be a second, empty database.
+    """
+    settings = get_settings()
+    if settings.qdrant_local_index:
+        return _load_local_index(Path(settings.qdrant_local_index))
+    return QdrantClient(url=settings.qdrant_url)
+
+
+def _load_local_index(directory: Path) -> QdrantClient:
+    """Rebuild an exported index inside an in-memory Qdrant.
+
+    This is how the deployed app runs: scripts/export_index.py dumps the
+    server's collection to a few small files, and they are loaded here at
+    startup. Qdrant's local mode searches by brute force, which is fine at
+    ~10K chunks and keeps the same filter semantics as the server.
+    """
+    meta = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
+    vectors = np.load(directory / "vectors.npy").astype(np.float32)
+    with gzip.open(directory / "points.jsonl.gz", "rt", encoding="utf-8") as fh:
+        points = [json.loads(line) for line in fh]
+    if len(points) != len(vectors):
+        raise IndexMismatchError(
+            f"{directory} is inconsistent: {len(points)} payloads but "
+            f"{len(vectors)} vectors. Re-run scripts/export_index.py."
+        )
+
+    client = QdrantClient(location=":memory:")
+    client.create_collection(
+        meta["collection"],
+        vectors_config={
+            meta["vector_name"]: qmodels.VectorParams(
+                size=meta["dim"], distance=qmodels.Distance(meta["distance"])
+            )
+        },
+    )
+    batch = 512
+    for start in range(0, len(points), batch):
+        client.upsert(
+            meta["collection"],
+            points=[
+                qmodels.PointStruct(
+                    id=p["id"], vector={meta["vector_name"]: v.tolist()}, payload=p["payload"]
+                )
+                for p, v in zip(points[start : start + batch], vectors[start : start + batch])
+            ],
+        )
+    return client
 
 
 def _existing_vector_size(client: QdrantClient, collection: str) -> int | None:
@@ -103,6 +156,11 @@ def index_documents(chunks: list[Document], recreate: bool = False) -> None:
     since stale chunks would otherwise linger alongside the new ones.
     """
     settings = get_settings()
+    if settings.qdrant_local_index:
+        raise RuntimeError(
+            "QDRANT_LOCAL_INDEX is set, which is the read-only deployment mode. "
+            "Unset it to ingest into the Qdrant server, then re-export."
+        )
     client = get_client()
     collection = settings.collection_name
 
@@ -153,12 +211,11 @@ def _write_index_meta(chunk_count: int, recreate: bool) -> None:
 
 def get_store() -> QdrantVectorStore:
     """Open the existing collection for querying."""
-    settings = get_settings()
     assert_index_matches_model()
-    return QdrantVectorStore.from_existing_collection(
-        collection_name=settings.collection_name,
+    return QdrantVectorStore(
+        client=get_client(),
+        collection_name=get_settings().collection_name,
         embedding=get_embeddings(),
-        url=settings.qdrant_url,
     )
 
 

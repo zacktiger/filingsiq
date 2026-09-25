@@ -99,6 +99,12 @@ class Settings(BaseSettings):
     # --- Qdrant ---
     qdrant_url: str = "http://localhost:6333"
 
+    # Deployment mode. When set to a directory written by
+    # scripts/export_index.py, the app loads that index into an in-memory Qdrant
+    # at startup and ignores qdrant_url - so a deployment is one container with
+    # no database server to run or pay for. Read-only: ingest needs the server.
+    qdrant_local_index: str = ""
+
     # --- Retrieval ---
     top_k: int = 5
 

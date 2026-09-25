@@ -7,9 +7,11 @@ with citations. The other endpoints in project.md (/search, /documents/{id},
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.rag.answer import answer_question
@@ -116,3 +118,17 @@ def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return answer_question(request, chunks)
+
+
+# --- Deployment: one origin for the UI and the API ---------------------------
+# The frontend calls /api/chat (in development Vite proxies that prefix away).
+# Registering the same handlers under /api lets the built UI work unchanged when
+# FastAPI serves it directly, with no proxy and no CORS.
+app.add_api_route("/api/health", health, methods=["GET"])
+app.add_api_route("/api/chat", chat, methods=["POST"], response_model=ChatResponse)
+
+# Mounted last so it never shadows an API route. Skipped when the UI has not
+# been built, which is the normal state during development.
+_FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if _FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")
