@@ -7,7 +7,9 @@
  * {answer, citations, refused} shape, so no component knows which it is.
  */
 
-export const HF_SPACE = import.meta.env.VITE_HF_SPACE;
+// Trimmed of stray whitespace, dots and slashes: a value pasted as
+// "kshitij005/filingsiq." (full stop and all) made the Space lookup 401.
+export const HF_SPACE = import.meta.env.VITE_HF_SPACE?.trim().replace(/^[\s./]+|[\s./]+$/g, "");
 
 let clientPromise = null;
 
