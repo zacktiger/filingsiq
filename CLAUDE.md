@@ -124,7 +124,8 @@ data/manifest.csv           company_name, sector, source_url
   and roughly the whole daily budget per full run. Keep the two runners
   separate, or Phase 3 gets one experiment a day instead of unlimited ones.
 - Don't add dependencies from later phases (LangGraph, Postgres, Redis,
-  Tailwind, TanStack Query) until that phase is actually being built.
+  TanStack Query) until that phase is actually being built. Tailwind was pulled
+  forward deliberately for the hosted UI (frontend/, deployed to Vercel).
 
 ## Gotchas
 

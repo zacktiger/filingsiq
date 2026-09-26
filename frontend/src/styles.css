@@ -1,99 +1,30 @@
-/* Minimal styling. Tailwind arrives in Phase 6 with the real UI. */
+@import "tailwindcss";
 
-:root {
-  --bg: #ffffff;
-  --fg: #1a1a1a;
-  --muted: #666666;
-  --line: #e2e2e2;
-  --accent: #1f5fbf;
-  --warn-bg: #fff8e6;
-  --warn-line: #e0b400;
-  --error-bg: #fdeaea;
-  --error-line: #c0392b;
-  color-scheme: light dark;
+/* One accent, used only for what the product is about: provenance (citations)
+   and liveness (backend status). Everything else is ink on paper. */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-paper: #f8f7f4;
+  --color-card: #ffffff;
+  --color-ink: #16150f;
+  --color-muted: #6b6a63;
+  --color-line: #e4e2dc;
+  --color-accent: #1f5c46;
+  --color-accent-soft: #e7efe9;
+  --color-warn: #8a4b12;
+  --color-warn-soft: #f6ede1;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16181c;
-    --fg: #ececec;
-    --muted: #9aa0a6;
-    --line: #2e3238;
-    --accent: #6aa3f0;
-    --warn-bg: #2c2617;
-    --error-bg: #2c1a1a;
-  }
+html {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
 }
 
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+::selection {
+  background: var(--color-ink);
+  color: var(--color-paper);
 }
-
-.page { max-width: 780px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
-
-h1 { margin: 0; font-size: 1.75rem; }
-.tagline { margin: 0.35rem 0 2rem; color: var(--muted); }
-
-.ask { display: flex; gap: 0.5rem; }
-
-.ask input {
-  flex: 1;
-  padding: 0.7rem 0.85rem;
-  font-size: 1rem;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-
-.ask input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-.ask button {
-  padding: 0.7rem 1.3rem;
-  font-size: 1rem;
-  color: #fff;
-  background: var(--accent);
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.ask button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.hint { color: var(--muted); font-size: 0.9rem; }
-
-.answer { margin-top: 2rem; }
-.answer h2 { font-size: 1.15rem; margin-bottom: 0.5rem; }
-.answer h3 { font-size: 0.95rem; margin: 1.75rem 0 0.5rem; color: var(--muted); }
-
-/* Refusals look different on purpose: declining to answer is a correct
-   outcome for out-of-scope questions, not an error. */
-.answer.refused p { color: var(--muted); font-style: italic; }
-
-.citations { padding-left: 1.25rem; }
-.citations li { margin-bottom: 1.1rem; }
-.cite-head { font-size: 0.9rem; }
-
-blockquote {
-  margin: 0.4rem 0 0;
-  padding: 0.5rem 0.85rem;
-  font-size: 0.88rem;
-  color: var(--muted);
-  white-space: pre-wrap;
-  border-left: 3px solid var(--line);
-}
-
-.error, .warn {
-  margin-top: 1.5rem;
-  padding: 0.85rem 1rem;
-  border-radius: 6px;
-}
-
-.error { background: var(--error-bg); border-left: 3px solid var(--error-line); }
-.warn  { background: var(--warn-bg);  border-left: 3px solid var(--warn-line); }
-.error p { margin: 0.3rem 0 0; }

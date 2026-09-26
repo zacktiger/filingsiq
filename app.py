@@ -100,13 +100,37 @@ def respond(message: str, history: list) -> str:
     return f"{response.answer}\n\n**Sources**\n{sources}"
 
 
-demo = gr.ChatInterface(
-    respond,
-    title="FilingsIQ - cited Q&A over Indian company filings",
-    description=DESCRIPTION,
-    examples=EXAMPLES,
-    cache_examples=False,
-)
+def chat(question: str) -> dict:
+    """JSON endpoint for the React frontend: the same shape as POST /chat.
+
+    The chat UI above returns Markdown for people; the React page needs the
+    answer and citations as fields, exactly as FastAPI's ChatResponse serves
+    them locally, so the page renders identically against either backend.
+    """
+    if not get_settings().groq_api_key:
+        raise gr.Error("This Space has no GROQ_API_KEY secret configured.")
+    request = ChatRequest(question=question)
+    try:
+        response = answer_question(request, search(request))
+    except Exception as exc:  # noqa: BLE001 - most often the free-tier rate limit
+        if "rate" in str(exc).lower() or "429" in str(exc):
+            raise gr.Error("The free-tier model limit has been reached. Try again later.")
+        raise gr.Error(f"Something went wrong: {type(exc).__name__}")
+    return response.model_dump()
+
+
+# The chat UI is rendered inside an outer Blocks so the JSON endpoint can be
+# declared alongside it: gr.api() added to an already-built ChatInterface was
+# silently not registered (Gradio 6.28).
+with gr.Blocks(title="FilingsIQ") as demo:
+    gr.ChatInterface(
+        respond,
+        title="FilingsIQ - cited Q&A over Indian company filings",
+        description=DESCRIPTION,
+        examples=EXAMPLES,
+        cache_examples=False,
+    )
+    gr.api(chat, api_name="chat")
 
 if __name__ == "__main__":
     # No hard-coded port: Spaces waits on Gradio's default (7860), and a fixed

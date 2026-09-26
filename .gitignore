@@ -30,3 +30,6 @@ qdrant_storage/
 
 # Local index build state, written by ingest.py (machine-specific)
 data/index_meta.json
+
+# Browser-test screenshots and snapshots
+.playwright-mcp/
