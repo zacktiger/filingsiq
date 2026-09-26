@@ -68,9 +68,18 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # --- Answer generation (Groq free tier) ---
+    # --- Answer generation ---
+    # "groq" (default, what the deployed Space uses) or "gemini". Switching
+    # provider changes answers, so run_answer_eval records it with each run.
+    answer_provider: str = "groq"
+
     groq_api_key: str = ""
     answer_model: str = "openai/gpt-oss-120b"
+
+    google_api_key: str = ""
+    # Checked against the live model list (Sept 2026) rather than recalled.
+    # gemini-3.8-flash is listed but returned 503 "high demand" repeatedly.
+    gemini_model: str = "gemini-2.5-flash"
 
     # Temperature MUST stay at 0 for this workload. ChatGroq defaults to 0.7,
     # which is actively wrong here: the job is to copy figures out of a filing

@@ -127,7 +127,12 @@ def run_config() -> dict:
     """
     settings = get_settings()
     return {
-        "answer_model": settings.answer_model,
+        "answer_provider": settings.answer_provider,
+        "answer_model": (
+            settings.gemini_model
+            if settings.answer_provider == "gemini"
+            else settings.answer_model
+        ),
         "answer_effort": settings.answer_effort,
         "answer_temperature": settings.answer_temperature,
         "answer_max_tokens": settings.answer_max_tokens,
@@ -429,8 +434,10 @@ def main() -> int:
     parser.add_argument("--no-judge", action="store_true", help="skip the faithfulness judge")
     args = parser.parse_args()
 
-    if not get_settings().groq_api_key:
-        raise SystemExit("GROQ_API_KEY is not set in .env - the answer eval needs it.")
+    settings = get_settings()
+    key_name = "GOOGLE_API_KEY" if settings.answer_provider == "gemini" else "GROQ_API_KEY"
+    if not getattr(settings, key_name.lower()):
+        raise SystemExit(f"{key_name} is not set in .env - the answer eval needs it.")
 
     questions = load_questions(args.ids, args.category)
     path, done = open_run(args.resume, args.label)

@@ -23,6 +23,8 @@ langchain-text-splitters>=1.0
 # Groq's free tier hosts the answer model. Verified limits (Sept 2026):
 # 30 req/min, 1,000 req/day, 8K tokens/min, 200K tokens/day.
 langchain-groq>=1.1.3
+# Optional second provider (ANSWER_PROVIDER=gemini), imported lazily in answer.py.
+langchain-google-genai>=4.4.0
 
 # --- Retrieval ---------------------------------------------------------------
 # [full] is required: langchain-huggingface does NOT install sentence-transformers

@@ -18,6 +18,7 @@ import re
 from functools import lru_cache
 
 from langchain_core.documents import Document
+from langchain_core.language_models import BaseChatModel
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_groq import ChatGroq
 
@@ -55,7 +56,7 @@ Be concise. Lead with the answer, then the supporting detail."""
 
 
 @lru_cache
-def get_model() -> ChatGroq:
+def get_model() -> BaseChatModel:
     """Build the answer model once per process.
 
     Runs on Groq's free tier (gpt-oss-120b). Three settings here are
@@ -82,6 +83,25 @@ def get_model() -> ChatGroq:
         check_every_n_seconds=0.1,
         max_bucket_size=1,
     )
+
+    if settings.answer_provider == "gemini":
+        # Imported here so the deployed Space, which only uses Groq, does not
+        # need the Gemini package installed.
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        return ChatGoogleGenerativeAI(
+            model=settings.gemini_model,
+            api_key=settings.google_api_key,
+            # Same rule as Groq: figures are copied verbatim, so no sampling.
+            # Gemini accepts temperature=0 (checked with a live call); the
+            # opposite of the claude-opus-5 case in CLAUDE.md.
+            temperature=settings.answer_temperature,
+            # Gemini counts its thinking tokens against the output cap, so the
+            # Groq-sized 1024 could cut an answer off mid-sentence.
+            max_tokens=4 * settings.answer_max_tokens,
+            rate_limiter=limiter,
+            max_retries=3,
+        )
 
     kwargs = {}
     # gpt-oss reasons before answering. Blank in config disables it, so the
@@ -185,7 +205,12 @@ def answer_question(request: ChatRequest, chunks: list[Document]) -> ChatRespons
     )
     # .content is a string for a plain text reply, but can be a list of blocks
     # when the model returns structured content, so normalise before parsing.
-    raw = reply.content if isinstance(reply.content, str) else str(reply.content)
+    # Gemini always returns a list of blocks; str() of that list put the
+    # literal "[{'type': 'text', ...}]" into the answer. Keep only the text.
+    raw = reply.content if isinstance(reply.content, str) else "".join(
+        block.get("text", "") if isinstance(block, dict) else str(block)
+        for block in reply.content
+    )
     raw = raw.strip()
 
     if INSUFFICIENT in raw:
