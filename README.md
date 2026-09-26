@@ -10,7 +10,7 @@ app_file: app.py
 pinned: false
 short_description: Cited Q&A over TCS, Infosys and HDFC Bank annual reports
 ---
-
+how it's built: a React page on Vercel, calling a Gradio API on Hugging Face Spaces, with an in-memory Qdrant index and Groq for answers.
 # FilingsIQ
 
 Search and Q&A over Indian company filings — annual reports, quarterly results,
