@@ -1,4 +1,16 @@
-# Hugging Face Spaces installs this file from the repo root. The backend's own
-# dependency list is the single source of truth; Gradio itself is supplied by
-# the Space (sdk_version in README.md), so it is not listed here.
--r backend/requirements.txt
+# Runtime dependencies for the Hugging Face Space (app.py).
+#
+# Self-contained on purpose: the Spaces build copies ONLY this file into the
+# install step, so "-r backend/requirements.txt" fails to resolve there. Gradio
+# and torch are supplied by the Space itself (sdk_version in README.md).
+# The full development set - FastAPI, PDF parsing for ingest - stays in
+# backend/requirements.txt.
+pydantic>=2.7.4
+pydantic-settings>=2.5
+python-dotenv>=1.0
+numpy>=1.26
+langchain-core>=1.6.0
+langchain-groq>=1.1.3
+langchain-huggingface[full]>=1.2.2
+langchain-qdrant>=1.1.0
+qdrant-client>=1.15.1
