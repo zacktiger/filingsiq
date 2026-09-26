@@ -1,0 +1,44 @@
+{
+  "questions": 17,
+  "answerable": {
+    "n": 17,
+    "correct": 0.5294,
+    "complete": 0.4118,
+    "answered_wrong": 0.1176,
+    "over_refusal": 0.3529,
+    "arithmetic_violations": 0
+  },
+  "by_category": {
+    "lookup": {
+      "n": 17,
+      "correct": 0.5294,
+      "complete": 0.4118,
+      "answered_wrong": 0.1176,
+      "refused": 0.3529
+    }
+  },
+  "refusal": {
+    "n": 0,
+    "correct_refusal": null
+  },
+  "citations": {
+    "answered": 11,
+    "cited_a_gold_page": 0.6364,
+    "mean_precision": 0.5379,
+    "answers_with_no_citation": 0
+  },
+  "diagnosis": {
+    "correct": 6,
+    "retrieval_failure": 8,
+    "correct_unlabelled_page": 3
+  },
+  "faithfulness": {
+    "judged": 0,
+    "mean": null
+  },
+  "cost": {
+    "total_tokens": 36360,
+    "mean_tokens_per_question": 2139,
+    "mean_latency_s": 13.09
+  }
+}
