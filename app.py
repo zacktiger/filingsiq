@@ -12,9 +12,18 @@ Nothing about retrieval or answering is different here.
 # or it raises "CUDA has been initialized before importing the spaces package".
 # Nothing here uses a GPU - embeddings run on CPU - so locally it is optional.
 try:
-    import spaces  # noqa: F401
+    import spaces
 except ImportError:
-    pass
+    spaces = None
+
+if spaces is not None:
+    # ZeroGPU refuses to start ("No @spaces.GPU function detected") unless some
+    # function is registered for GPU. This one exists only to pass that check
+    # and is never called: decorating respond() instead would spend every
+    # visitor's GPU quota on a request that is CPU embeddings + an API call.
+    @spaces.GPU
+    def _zerogpu_startup_check() -> None:
+        pass
 
 import os
 import sys
