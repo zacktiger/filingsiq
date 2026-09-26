@@ -62,6 +62,12 @@ def get_embeddings() -> Embeddings:
         # for cosine similarity, and the Qdrant collection is created with
         # Distance.COSINE to match - all three have to agree.
         encode_kwargs={"normalize_embeddings": True},
+        # Pinned rather than auto-detected. On a ZeroGPU Space, CUDA reports as
+        # available outside @spaces.GPU functions, so auto-detection moved the
+        # model to a device it could not really use: every query embedded to
+        # near the same vector and search returned the same HDFC Bank pages for
+        # "TCS revenue". The pipeline is CPU-only by design anyway.
+        model_kwargs={"device": "cpu"},
     )
 
     return PrefixedEmbeddings(inner, spec.query_prefix)

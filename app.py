@@ -73,7 +73,15 @@ def respond(message: str, history: list) -> str:
         return "This Space has no `GROQ_API_KEY` secret configured, so it cannot answer."
     try:
         request = ChatRequest(question=message)
-        response = answer_question(request, search(request))
+        chunks = search(request)
+        # One line per question in the Space's logs: what was retrieved is the
+        # first thing to check when an answer is wrong or refused.
+        print(
+            f"Q: {message!r} -> "
+            f"{[(c.metadata['company'], c.metadata['fiscal_year'], c.metadata['page']) for c in chunks]}",
+            flush=True,
+        )
+        response = answer_question(request, chunks)
     except IndexMismatchError as exc:
         return f"Index problem: {exc}"
     except Exception as exc:  # noqa: BLE001 - most often the free-tier rate limit
