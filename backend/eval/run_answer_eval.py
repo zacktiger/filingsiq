@@ -496,13 +496,13 @@ def main() -> int:
 
     summary_path = path.with_suffix(".summary.json")
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"\nWrote {path.relative_to(DATA_DIR.parent)} and {summary_path.name}")
+    print(f"\nWrote {path.resolve().relative_to(DATA_DIR.parent)} and {summary_path.name}")
 
     if stopped_early:
         print(
             "\nRun incomplete. Continue it (after the daily limit resets, if that "
             f"was the cause) with:\n  python backend/eval/run_answer_eval.py "
-            f"--resume {path.relative_to(DATA_DIR.parent).as_posix()}"
+            f"--resume {path.resolve().relative_to(DATA_DIR.parent).as_posix()}"
         )
         return 2
     return 0

@@ -1,11 +1,11 @@
 {
-  "questions": 49,
+  "questions": 121,
   "answerable": {
-    "n": 37,
-    "correct": 0.2162,
-    "complete": 0.2162,
-    "answered_wrong": 0.2973,
-    "over_refusal": 0.4865,
+    "n": 109,
+    "correct": 0.422,
+    "complete": 0.3853,
+    "answered_wrong": 0.2018,
+    "over_refusal": 0.3761,
     "arithmetic_violations": 0
   },
   "by_category": {
@@ -22,6 +22,13 @@
       "complete": 0.1,
       "answered_wrong": 0.2,
       "refused": 0.7
+    },
+    "lookup": {
+      "n": 72,
+      "correct": 0.5278,
+      "complete": 0.4722,
+      "answered_wrong": 0.1528,
+      "refused": 0.3194
     },
     "multi_year": {
       "n": 11,
@@ -43,24 +50,24 @@
     "correct_refusal": 0.8333
   },
   "citations": {
-    "answered": 19,
-    "cited_a_gold_page": 0.4211,
-    "mean_precision": 0.2982,
+    "answered": 68,
+    "cited_a_gold_page": 0.6324,
+    "mean_precision": 0.5576,
     "answers_with_no_citation": 0
   },
   "diagnosis": {
-    "correct_unlabelled_page": 3,
-    "retrieval_failure": 21,
-    "correct": 5,
-    "generation_failure": 8
+    "correct_unlabelled_page": 15,
+    "retrieval_failure": 49,
+    "correct": 31,
+    "generation_failure": 14
   },
   "faithfulness": {
     "judged": 10,
     "mean": 0.9457
   },
   "cost": {
-    "total_tokens": 110821,
-    "mean_tokens_per_question": 2262,
-    "mean_latency_s": 4.25
+    "total_tokens": 244245,
+    "mean_tokens_per_question": 2019,
+    "mean_latency_s": 3.49
   }
 }
