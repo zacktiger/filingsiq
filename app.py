@@ -5,8 +5,16 @@ Free Spaces only run the Gradio SDK, so this wraps the existing search() and
 answer_question() - the functions POST /chat calls - rather than the React UI.
 Nothing about retrieval or answering is different here.
 
-    python app.py      # local test on http://localhost:7861
+    python app.py      # local test on http://localhost:7860
 """
+
+# On a ZeroGPU Space, `spaces` must be imported before anything touches torch,
+# or it raises "CUDA has been initialized before importing the spaces package".
+# Nothing here uses a GPU - embeddings run on CPU - so locally it is optional.
+try:
+    import spaces  # noqa: F401
+except ImportError:
+    pass
 
 import os
 import sys
@@ -84,4 +92,7 @@ demo = gr.ChatInterface(
 )
 
 if __name__ == "__main__":
-    demo.launch(server_port=int(os.environ.get("PORT", 7861)))
+    # No hard-coded port: Spaces waits on Gradio's default (7860), and a fixed
+    # port leaves the Space stuck at "starting" forever.
+    port = os.environ.get("PORT")
+    demo.launch(server_port=int(port) if port else None)
