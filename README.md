@@ -1,3 +1,16 @@
+---
+title: FilingsIQ
+emoji: 📑
+colorFrom: blue
+colorTo: gray
+sdk: gradio
+sdk_version: 6.28.0
+python_version: "3.12"
+app_file: app.py
+pinned: false
+short_description: Cited Q&A over TCS, Infosys and HDFC Bank annual reports
+---
+
 # FilingsIQ
 
 Search and Q&A over Indian company filings — annual reports, quarterly results,

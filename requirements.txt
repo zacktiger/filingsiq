@@ -1,0 +1,4 @@
+# Hugging Face Spaces installs this file from the repo root. The backend's own
+# dependency list is the single source of truth; Gradio itself is supplied by
+# the Space (sdk_version in README.md), so it is not listed here.
+-r backend/requirements.txt
